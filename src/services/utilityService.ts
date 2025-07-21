@@ -1,5 +1,6 @@
 import { UtilityProvider, UtilityBill, BillSearchResult } from '../types/utility';
 import { gmailApiService } from './gmailApi';
+import { ParsedEmail } from '../types/email';
 
 // Predefined utility providers
 const DEFAULT_UTILITY_PROVIDERS: UtilityProvider[] = [
@@ -121,56 +122,77 @@ class UtilityService {
       const startDate = new Date();
       startDate.setMonth(startDate.getMonth() - monthsBack);
 
-      // Create Gmail search query for PDF attachments in date range
+      // Phase 1: Build provider-specific search query
       const dateQuery = `after:${startDate.toISOString().split('T')[0]} before:${endDate.toISOString().split('T')[0]}`;
-      const pdfQuery = 'has:attachment filename:pdf';
-      const searchQuery = `${dateQuery} ${pdfQuery}`;
-
-      console.log('Search query:', searchQuery);
-
-      // Get messages with PDF attachments
-      const messages = await gmailApiService.searchMessages(searchQuery, 100);
       
-      console.log(`Found ${messages.length} messages with PDF attachments`);
+      // Create domain search clauses for each provider
+      const providerQueries = this.selectedProviders.map(provider => {
+        const domainClauses = provider.domains.map(domain => 
+          `from:${domain} OR from:*@${domain}`
+        ).join(' OR ');
+        return `(${domainClauses})`;
+      });
 
-      // Filter messages by utility provider domains
-      const utilityBills: UtilityBill[] = [];
+      // Combine all providers with OR
+      const providerQuery = providerQueries.join(' OR ');
+      const searchQuery = `${dateQuery} (${providerQuery})`;
+
+      console.log('🔍 Phase 1: Provider-specific search query:', searchQuery);
+
+      // Phase 2: Get emails from utility providers (no attachment filter yet)
+      const providerEmails = await gmailApiService.searchMessages(searchQuery, 200);
+      console.log(`📧 Phase 2: Found ${providerEmails.length} emails from utility providers`);
+
+      // Phase 3: Filter for emails with attachments
+      const emailsWithAttachments: ParsedEmail[] = [];
       
-      for (const message of messages) {
-        const emailDomain = this.extractDomain(message.from.email);
-        
-        if (this.isFromUtilityProvider(emailDomain)) {
-          // Find which provider this matches
-          const matchingProvider = this.selectedProviders.find(provider => 
-            provider.domains.some(domain => 
-              emailDomain.includes(domain.toLowerCase()) || 
-              domain.toLowerCase().includes(emailDomain)
-            )
-          );
-
-          if (matchingProvider) {
-            // Try to extract amount and bill number from subject
-            const amountMatch = message.subject.match(/\$([0-9,]+\.?[0-9]*)/);
-            const billNumberMatch = message.subject.match(/bill\s*#?([A-Z0-9-]+)/i);
-            
-            const bill: UtilityBill = {
-              id: `${message.id}-${matchingProvider.id}`,
-              messageId: message.id,
-              provider: matchingProvider,
-              subject: message.subject,
-              from: message.from,
-              date: message.date,
-              hasPdfAttachment: true,
-              amount: amountMatch ? amountMatch[1] : undefined,
-              billNumber: billNumberMatch ? billNumberMatch[1] : undefined
-            };
-
-            utilityBills.push(bill);
-          }
+      for (const email of providerEmails) {
+        // Check if email has attachments or mentions PDF in subject
+        if (email.hasAttachments || 
+            email.subject.toLowerCase().includes('pdf') ||
+            email.subject.toLowerCase().includes('bill')) {
+          emailsWithAttachments.push(email);
         }
       }
 
-      console.log(`Found ${utilityBills.length} utility bills`);
+      console.log(`📎 Phase 3: Found ${emailsWithAttachments.length} emails with potential attachments`);
+
+      // Phase 4: Process emails and create utility bills
+      const utilityBills: UtilityBill[] = [];
+      
+      for (const message of emailsWithAttachments) {
+        const emailDomain = this.extractDomain(message.from.email);
+        
+        // Find which provider this matches
+        const matchingProvider = this.selectedProviders.find(provider => 
+          provider.domains.some(domain => 
+            emailDomain.includes(domain.toLowerCase()) || 
+            domain.toLowerCase().includes(emailDomain)
+          )
+        );
+
+        if (matchingProvider) {
+          // Try to extract amount and bill number from subject
+          const amountMatch = message.subject.match(/\$([0-9,]+\.?[0-9]*)/);
+          const billNumberMatch = message.subject.match(/bill\s*#?([A-Z0-9-]+)/i);
+          
+          const bill: UtilityBill = {
+            id: `${message.id}-${matchingProvider.id}`,
+            messageId: message.id,
+            provider: matchingProvider,
+            subject: message.subject,
+            from: message.from,
+            date: message.date,
+            hasPdfAttachment: message.hasAttachments || message.subject.toLowerCase().includes('pdf'),
+            amount: amountMatch ? amountMatch[1] : undefined,
+            billNumber: billNumberMatch ? billNumberMatch[1] : undefined
+          };
+
+          utilityBills.push(bill);
+        }
+      }
+
+      console.log(`✅ Phase 4: Found ${utilityBills.length} utility bills`);
 
       return {
         bills: utilityBills,

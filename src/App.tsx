@@ -56,11 +56,10 @@ function App() {
       console.error('Error checking existing auth:', error);
       setAppState('login');
     } finally {
-      if (appState === 'loading') {
-        setAppState('login');
-      }
+      // Only set to login if we're still in loading state
+      setAppState(prevState => prevState === 'loading' ? 'login' : prevState);
     }
-  }, [loadUserProfile, appState]);
+  }, [loadUserProfile]);
 
   useEffect(() => {
     checkExistingAuth();
@@ -104,6 +103,7 @@ function App() {
   const handleSearchBills = async () => {
     console.log('🔍 handleSearchBills called');
     console.log('Selected providers:', selectedProviders);
+    console.log('Current appState:', appState);
     
     if (selectedProviders.length === 0) {
       console.log('❌ No providers selected');
@@ -113,6 +113,7 @@ function App() {
     console.log('✅ Starting search...');
     setIsSearching(true);
     setAppState('searching');
+    console.log('🔄 Set appState to searching');
 
     try {
       console.log('🔍 Calling utilityService.searchUtilityBills...');
@@ -187,6 +188,7 @@ function App() {
   }
 
   // Show provider selection
+  console.log('🎨 Rendering with appState:', appState);
   if (appState === 'provider-selection') {
     return (
       <div className="min-h-screen bg-gray-50">
@@ -231,6 +233,7 @@ function App() {
   }
 
   // Show searching state
+  console.log('🔍 Checking searching state, appState:', appState);
   if (appState === 'searching') {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
