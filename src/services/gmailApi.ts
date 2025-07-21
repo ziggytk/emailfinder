@@ -34,6 +34,9 @@ class GmailApiService {
   private refreshToken: string | null = null;
   private clientId: string;
   private redirectUri: string;
+  private requestQueue: Promise<any>[] = [];
+  private lastRequestTime = 0;
+  private readonly RATE_LIMIT_DELAY = 100; // 100ms between requests
 
   constructor() {
     this.clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
@@ -46,6 +49,30 @@ class GmailApiService {
   private loadStoredTokens(): void {
     this.accessToken = localStorage.getItem('gmail_access_token');
     this.refreshToken = localStorage.getItem('gmail_refresh_token');
+  }
+
+  // Rate-limited fetch method
+  private async rateLimitedFetch(url: string, options: RequestInit): Promise<Response> {
+    const now = Date.now();
+    const timeSinceLastRequest = now - this.lastRequestTime;
+    
+    if (timeSinceLastRequest < this.RATE_LIMIT_DELAY) {
+      await new Promise(resolve => setTimeout(resolve, this.RATE_LIMIT_DELAY - timeSinceLastRequest));
+    }
+    
+    this.lastRequestTime = Date.now();
+    
+    const response = await fetch(url, options);
+    
+    // If we hit rate limit, wait and retry once
+    if (response.status === 429) {
+      console.log('Rate limit hit, waiting 2 seconds before retry...');
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      this.lastRequestTime = Date.now();
+      return await fetch(url, options);
+    }
+    
+    return response;
   }
 
   // Sign in with Google using OAuth 2.0 Implicit Flow
@@ -181,7 +208,7 @@ class GmailApiService {
     try {
       console.log('Fetching user profile with token:', this.accessToken.substring(0, 20) + '...');
       
-      const response = await fetch(
+      const response = await this.rateLimitedFetch(
         'https://people.googleapis.com/v1/people/me?personFields=names,emailAddresses,photos',
         {
           headers: {
@@ -223,7 +250,7 @@ class GmailApiService {
   // Fallback method to get user profile from Gmail API
   private async getUserProfileFromGmail(): Promise<UserProfile> {
     try {
-      const response = await fetch(
+      const response = await this.rateLimitedFetch(
         'https://gmail.googleapis.com/gmail/v1/users/me/profile',
         {
           headers: {
@@ -251,7 +278,7 @@ class GmailApiService {
     }
   }
 
-  // Get Gmail messages
+  // Get Gmail messages with rate limiting
   async getMessages(maxResults: number = 50): Promise<ParsedEmail[]> {
     if (!this.accessToken) {
       throw new Error('No access token available');
@@ -259,7 +286,7 @@ class GmailApiService {
 
     try {
       // Get list of message IDs
-      const listResponse = await fetch(
+      const listResponse = await this.rateLimitedFetch(
         `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=${maxResults}&q=in:inbox`,
         {
           headers: {
@@ -279,29 +306,47 @@ class GmailApiService {
         return [];
       }
 
-      // Get full message details for each message
-      const messagePromises = listData.messages.map(async (message: { id: string }) => {
-        const messageResponse = await fetch(
-          `https://gmail.googleapis.com/gmail/v1/users/me/messages/${message.id}?format=full`,
-          {
-            headers: {
-              'Authorization': `Bearer ${this.accessToken}`,
-              'Content-Type': 'application/json'
+      // Process messages in smaller batches to avoid rate limiting
+      const batchSize = 10;
+      const messages: ParsedEmail[] = [];
+      
+      for (let i = 0; i < listData.messages.length; i += batchSize) {
+        const batch = listData.messages.slice(i, i + batchSize);
+        
+        // Process batch sequentially to respect rate limits
+        for (const message of batch) {
+          try {
+            const messageResponse = await this.rateLimitedFetch(
+              `https://gmail.googleapis.com/gmail/v1/users/me/messages/${message.id}?format=full`,
+              {
+                headers: {
+                  'Authorization': `Bearer ${this.accessToken}`,
+                  'Content-Type': 'application/json'
+                }
+              }
+            );
+
+            if (messageResponse.ok) {
+              const messageData = await messageResponse.json();
+              const parsedMessage = this.parseMessage(messageData);
+              if (parsedMessage) {
+                messages.push(parsedMessage);
+              }
+            } else {
+              console.error(`Failed to fetch message ${message.id}: ${messageResponse.status}`);
             }
+          } catch (error) {
+            console.error(`Error fetching message ${message.id}:`, error);
           }
-        );
-
-        if (!messageResponse.ok) {
-          console.error(`Failed to fetch message ${message.id}`);
-          return null;
         }
+        
+        // Add a small delay between batches
+        if (i + batchSize < listData.messages.length) {
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+      }
 
-        const messageData = await messageResponse.json();
-        return this.parseMessage(messageData);
-      });
-
-      const messages = await Promise.all(messagePromises);
-      return messages.filter(Boolean) as ParsedEmail[];
+      return messages;
     } catch (error) {
       console.error('Error fetching messages:', error);
       throw error;
