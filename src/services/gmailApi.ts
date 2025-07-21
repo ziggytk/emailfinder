@@ -1,3 +1,5 @@
+import { supabase } from './supabaseClient';
+
 export interface GmailMessage {
   id: string;
   threadId: string;
@@ -21,6 +23,7 @@ export interface ParsedEmail {
   date: Date;
   read: boolean;
   starred: boolean;
+  hasAttachments: boolean;
 }
 
 export interface UserProfile {
@@ -32,16 +35,11 @@ export interface UserProfile {
 class GmailApiService {
   private accessToken: string | null = null;
   private refreshToken: string | null = null;
-  private clientId: string;
-  private redirectUri: string;
   private requestQueue: Promise<any>[] = [];
   private lastRequestTime = 0;
   private readonly RATE_LIMIT_DELAY = 100; // 100ms between requests
 
   constructor() {
-    this.clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
-    this.redirectUri = `${window.location.origin}/auth`;
-    
     // Load stored tokens on initialization
     this.loadStoredTokens();
   }
@@ -75,126 +73,170 @@ class GmailApiService {
     return response;
   }
 
-  // Sign in with Google using OAuth 2.0 Implicit Flow
+  // Sign in with Google using Supabase OAuth
   async signInWithGoogle(): Promise<void> {
-    if (!this.clientId) {
-      throw new Error('Google Client ID is not configured');
-    }
-
-    const scopes = [
-      'https://www.googleapis.com/auth/gmail.readonly',
-      'https://www.googleapis.com/auth/userinfo.profile',
-      'https://www.googleapis.com/auth/userinfo.email'
-    ].join(' ');
-
-    const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?` +
-      `client_id=${encodeURIComponent(this.clientId)}` +
-      `&redirect_uri=${encodeURIComponent(this.redirectUri)}` +
-      `&response_type=token` +
-      `&scope=${encodeURIComponent(scopes)}` +
-      `&prompt=consent`;
-
-    // Store the current URL to return to after auth
-    sessionStorage.setItem('auth_redirect', window.location.href);
-    
-    // Redirect to Google OAuth
-    window.location.href = authUrl;
-  }
-
-  // Handle OAuth callback for implicit flow
-  async handleAuthCallback(): Promise<boolean> {
-    const hash = window.location.hash.substring(1);
-    const params = new URLSearchParams(hash);
-    const accessToken = params.get('access_token');
-    const error = params.get('error');
-
-    if (error) {
-      console.error('OAuth error:', error);
-      return false;
-    }
-
-    if (accessToken) {
-      this.accessToken = accessToken;
-      localStorage.setItem('gmail_access_token', accessToken);
-      
-      // Clear the hash from URL
-      window.history.replaceState({}, document.title, window.location.pathname);
-      
-      // Redirect back to the original page or home
-      const redirectUrl = sessionStorage.getItem('auth_redirect') || '/';
-      sessionStorage.removeItem('auth_redirect');
-      window.location.href = redirectUrl;
-      
-      return true;
-    }
-
-    return false;
-  }
-
-  // Refresh access token using refresh token
-  private async refreshAccessToken(): Promise<boolean> {
-    if (!this.refreshToken) {
-      return false;
-    }
-
     try {
-      const tokenUrl = 'https://oauth2.googleapis.com/token';
-      
-      const response = await fetch(tokenUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: new URLSearchParams({
-          client_id: this.clientId,
-          refresh_token: this.refreshToken,
-          grant_type: 'refresh_token',
-        }),
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: `${window.location.origin}/auth`,
+          scopes: 'https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email',
+          queryParams: {
+            access_type: 'offline',
+            prompt: 'consent'
+          }
+        }
       });
 
-      if (!response.ok) {
-        throw new Error('Failed to refresh token');
+      if (error) {
+        throw error;
       }
 
-      const tokenData = await response.json();
-      this.accessToken = tokenData.access_token;
-      if (this.accessToken) {
-        localStorage.setItem('gmail_access_token', this.accessToken);
-      }
+      // The redirect will happen automatically
+      console.log('OAuth sign-in initiated:', data);
+    } catch (error) {
+      console.error('Error signing in with Google:', error);
+      throw error;
+    }
+  }
+
+  // Handle OAuth callback from Supabase
+  async handleAuthCallback(): Promise<boolean> {
+    try {
+      const { data: { session }, error } = await supabase.auth.getSession();
       
-      return true;
+      if (error) {
+        console.error('Error getting session:', error);
+        return false;
+      }
+
+      if (session?.access_token) {
+        console.log('🔍 Supabase session details:', {
+          hasAccessToken: !!session.access_token,
+          hasProviderToken: !!session.provider_token,
+          hasRefreshToken: !!session.refresh_token,
+          providerToken: session.provider_token ? session.provider_token.substring(0, 20) + '...' : 'none',
+          user: session.user ? {
+            id: session.user.id,
+            email: session.user.email,
+            hasUserMetadata: !!session.user.user_metadata,
+            metadataKeys: session.user.user_metadata ? Object.keys(session.user.user_metadata) : []
+          } : 'no user'
+        });
+        
+        // Get the Google provider token from the session
+        const googleAccessToken = session.provider_token;
+        
+        // Also check user metadata for Google access token
+        const userMetadata = session.user?.user_metadata;
+        const metadataAccessToken = userMetadata?.access_token || userMetadata?.google_access_token;
+        
+        if (googleAccessToken) {
+          console.log('✅ Found Google access token from Supabase session provider_token');
+          this.accessToken = googleAccessToken;
+          localStorage.setItem('gmail_access_token', googleAccessToken);
+        } else if (metadataAccessToken) {
+          console.log('✅ Found Google access token from user metadata');
+          this.accessToken = metadataAccessToken;
+          localStorage.setItem('gmail_access_token', metadataAccessToken);
+        } else {
+          console.log('⚠️ No Google access token found, using Supabase access token (this may not work for Google APIs)');
+          this.accessToken = session.access_token;
+          localStorage.setItem('gmail_access_token', session.access_token);
+        }
+        
+        if (session.refresh_token) {
+          this.refreshToken = session.refresh_token;
+          localStorage.setItem('gmail_refresh_token', session.refresh_token);
+        }
+        
+        return true;
+      }
+
+      return false;
+    } catch (error) {
+      console.error('Error handling auth callback:', error);
+      return false;
+    }
+  }
+
+  // Refresh access token using Supabase
+  private async refreshAccessToken(): Promise<boolean> {
+    try {
+      const { data: { session }, error } = await supabase.auth.refreshSession();
+      
+      if (error) {
+        console.error('Error refreshing session:', error);
+        return false;
+      }
+
+      if (session?.access_token) {
+        // Get the Google provider token from the session
+        const googleAccessToken = session.provider_token;
+        
+        if (googleAccessToken) {
+          console.log('✅ Found Google access token from refreshed Supabase session');
+          this.accessToken = googleAccessToken;
+          localStorage.setItem('gmail_access_token', googleAccessToken);
+        } else {
+          console.log('⚠️ No Google provider token found in refreshed session, using Supabase access token');
+          this.accessToken = session.access_token;
+          localStorage.setItem('gmail_access_token', session.access_token);
+        }
+        
+        if (session.refresh_token) {
+          this.refreshToken = session.refresh_token;
+          localStorage.setItem('gmail_refresh_token', session.refresh_token);
+        }
+        
+        return true;
+      }
+
+      return false;
     } catch (error) {
       console.error('Error refreshing token:', error);
       return false;
     }
   }
 
-  // Check if user is already authenticated
-  async checkAuthStatus(): Promise<boolean> {
-    if (!this.accessToken) {
-      return false;
-    }
+  getAccessToken(): string | null {
+    return this.accessToken;
+  }
 
-    // Try to use current access token
+  async checkAuthStatus(): Promise<boolean> {
     try {
-      await this.getUserProfile();
-      return true;
-    } catch {
-      // Token might be expired, try to refresh
-      if (this.refreshToken) {
-        const refreshed = await this.refreshAccessToken();
-        if (refreshed) {
-          try {
-            await this.getUserProfile();
-            return true;
-          } catch {
-            console.error('Error after token refresh');
-          }
-        }
-      }
+      const { data: { session }, error } = await supabase.auth.getSession();
       
-      // If refresh failed, clear tokens and return false
-      this.logout();
+      if (error) {
+        console.error('Error checking auth status:', error);
+        return false;
+      }
+
+      if (session?.access_token) {
+        // Get the Google provider token from the session
+        const googleAccessToken = session.provider_token;
+        
+        if (googleAccessToken) {
+          console.log('✅ Found Google access token from Supabase session');
+          this.accessToken = googleAccessToken;
+          localStorage.setItem('gmail_access_token', googleAccessToken);
+        } else {
+          console.log('⚠️ No Google provider token found, using Supabase access token');
+          this.accessToken = session.access_token;
+          localStorage.setItem('gmail_access_token', session.access_token);
+        }
+        
+        if (session.refresh_token) {
+          this.refreshToken = session.refresh_token;
+          localStorage.setItem('gmail_refresh_token', session.refresh_token);
+        }
+        
+        return true;
+      }
+
+      return false;
+    } catch (error) {
+      console.error('Error checking auth status:', error);
       return false;
     }
   }
@@ -225,9 +267,14 @@ class GmailApiService {
         const errorText = await response.text();
         console.error('People API error response:', errorText);
         
-        // Fallback to Gmail API if People API fails
-        console.log('Falling back to Gmail API for user profile...');
-        return await this.getUserProfileFromGmail();
+        // Try Supabase fallback first, then Gmail API
+        console.log('Trying Supabase fallback for user profile...');
+        try {
+          return await this.getUserProfileFromSupabase();
+        } catch (supabaseError) {
+          console.log('Supabase fallback failed, trying Gmail API...');
+          return await this.getUserProfileFromGmail();
+        }
       }
 
       const data = await response.json();
@@ -241,9 +288,39 @@ class GmailApiService {
     } catch (error) {
       console.error('Error fetching user profile from People API:', error);
       
-      // Fallback to Gmail API if People API fails
-      console.log('Falling back to Gmail API for user profile...');
-      return await this.getUserProfileFromGmail();
+      // Try Supabase fallback first, then Gmail API
+      console.log('Trying Supabase fallback for user profile...');
+      try {
+        return await this.getUserProfileFromSupabase();
+      } catch (supabaseError) {
+        console.log('Supabase fallback failed, trying Gmail API...');
+        return await this.getUserProfileFromGmail();
+      }
+    }
+  }
+
+  // Get user profile from Supabase user metadata (fallback)
+  async getUserProfileFromSupabase(): Promise<UserProfile> {
+    try {
+      const { data: { session }, error } = await supabase.auth.getSession();
+      
+      if (error || !session?.user) {
+        throw new Error('No Supabase session available');
+      }
+
+      const user = session.user;
+      const metadata = user.user_metadata;
+      
+      console.log('Getting user profile from Supabase metadata:', metadata);
+      
+      return {
+        name: metadata?.full_name || metadata?.name || user.email?.split('@')[0] || 'Unknown User',
+        email: user.email || '',
+        avatar: metadata?.avatar_url || metadata?.picture || ''
+      };
+    } catch (error) {
+      console.error('Error getting user profile from Supabase:', error);
+      throw error;
     }
   }
 
@@ -359,6 +436,101 @@ class GmailApiService {
     }
   }
 
+  // Get a single Gmail message by ID with attachments
+  async getMessage(messageId: string): Promise<any> {
+    if (!this.accessToken) {
+      throw new Error('No access token available');
+    }
+
+    try {
+      const response = await this.rateLimitedFetch(
+        `https://gmail.googleapis.com/gmail/v1/users/me/messages/${messageId}?format=full`,
+        {
+          headers: {
+            'Authorization': `Bearer ${this.accessToken}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(`Gmail API error: ${response.status}`);
+      }
+
+      const messageData = await response.json();
+      
+      // Extract attachments from the message payload
+      const attachments = this.extractAttachments(messageData.payload);
+      
+      // Return message with attachments in the expected format
+      return {
+        ...messageData,
+        attachments: attachments
+      };
+    } catch (error) {
+      console.error('Error fetching message:', error);
+      throw error;
+    }
+  }
+
+  // Extract attachments from Gmail message payload
+  private extractAttachments(payload: any): any[] {
+    const attachments: any[] = [];
+    
+    const processPart = (part: any) => {
+      if (part.filename && part.filename.length > 0) {
+        // This is an attachment
+        attachments.push({
+          id: part.body?.attachmentId,
+          filename: part.filename,
+          mimeType: part.mimeType,
+          size: part.body?.size,
+          data: part.body?.data // Base64 encoded data (may be null for large attachments)
+        });
+      }
+      
+      // Recursively process nested parts
+      if (part.parts) {
+        part.parts.forEach(processPart);
+      }
+    };
+    
+    if (payload) {
+      processPart(payload);
+    }
+    
+    return attachments;
+  }
+
+  // Fetch attachment data for a specific attachment
+  async getAttachmentData(messageId: string, attachmentId: string): Promise<string> {
+    if (!this.accessToken) {
+      throw new Error('No access token available');
+    }
+
+    try {
+      const response = await this.rateLimitedFetch(
+        `https://gmail.googleapis.com/gmail/v1/users/me/messages/${messageId}/attachments/${attachmentId}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${this.accessToken}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(`Gmail API error: ${response.status}`);
+      }
+
+      const attachmentData = await response.json();
+      return attachmentData.data; // Base64 encoded data
+    } catch (error) {
+      console.error('Error fetching attachment data:', error);
+      throw error;
+    }
+  }
+
   // Get Gmail messages with rate limiting
   async getMessages(maxResults: number = 50): Promise<ParsedEmail[]> {
     if (!this.accessToken) {
@@ -461,6 +633,9 @@ class GmailApiService {
       }
     }
 
+    // Check for attachments
+    const hasAttachments = this.hasAttachments(message.payload);
+
     return {
       id: message.id,
       from: {
@@ -472,7 +647,8 @@ class GmailApiService {
       body: this.extractMessageBody(message.payload),
       date: new Date(date || message.internalDate),
       read: !message.labelIds?.includes('UNREAD'),
-      starred: message.labelIds?.includes('STARRED') || false
+      starred: message.labelIds?.includes('STARRED') || false,
+      hasAttachments: hasAttachments
     };
   }
 
@@ -497,15 +673,46 @@ class GmailApiService {
     return '';
   }
 
+  private hasAttachments(payload: any): boolean {
+    // Check if the message has parts (multipart)
+    if (payload.parts) {
+      for (const part of payload.parts) {
+        // Check if this part is an attachment
+        if (part.filename && part.filename.length > 0) {
+          return true;
+        }
+        // Recursively check nested parts
+        if (part.parts && this.hasAttachments(part)) {
+          return true;
+        }
+      }
+    }
+    
+    // Check if the message itself has a filename (single attachment)
+    if (payload.filename && payload.filename.length > 0) {
+      return true;
+    }
+    
+    return false;
+  }
+
   // Logout
   async logout(): Promise<void> {
-    this.accessToken = null;
-    this.refreshToken = null;
-    localStorage.removeItem('gmail_access_token');
-    localStorage.removeItem('gmail_refresh_token');
-    
-    // No specific logout for Google Accounts ID library here,
-    // as the new OAuth flow doesn't use it directly.
+    try {
+      // Sign out from Supabase
+      const { error } = await supabase.auth.signOut();
+      if (error) {
+        console.error('Error signing out from Supabase:', error);
+      }
+    } catch (error) {
+      console.error('Error during logout:', error);
+    } finally {
+      // Clear local tokens
+      this.accessToken = null;
+      this.refreshToken = null;
+      localStorage.removeItem('gmail_access_token');
+      localStorage.removeItem('gmail_refresh_token');
+    }
   }
 }
 
