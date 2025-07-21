@@ -152,7 +152,7 @@ class GmailApiService {
     try {
       await this.getUserProfile();
       return true;
-    } catch (error) {
+    } catch {
       // Token might be expired, try to refresh
       if (this.refreshToken) {
         const refreshed = await this.refreshAccessToken();
@@ -160,8 +160,8 @@ class GmailApiService {
           try {
             await this.getUserProfile();
             return true;
-          } catch (refreshError) {
-            console.error('Error after token refresh:', refreshError);
+          } catch {
+            console.error('Error after token refresh');
           }
         }
       }

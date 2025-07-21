@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { LoginScreen } from './components/LoginScreen';
 import { EmailDashboard } from './components/EmailDashboard';
 import { gmailApiService } from './services/gmailApi';
@@ -13,9 +13,9 @@ function App() {
 
   useEffect(() => {
     checkExistingAuth();
-  }, []);
+  }, [checkExistingAuth]);
 
-  const checkExistingAuth = async () => {
+  const checkExistingAuth = useCallback(async () => {
     try {
       // Check if we're returning from OAuth callback (hash-based for implicit flow)
       if (window.location.hash.includes('access_token')) {
@@ -35,7 +35,7 @@ function App() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
 
   const loadUserProfile = async () => {
     try {
