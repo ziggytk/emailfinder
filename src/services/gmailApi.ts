@@ -278,6 +278,81 @@ class GmailApiService {
     }
   }
 
+  // Search Gmail messages with a specific query
+  async searchMessages(query: string, maxResults: number = 50): Promise<ParsedEmail[]> {
+    if (!this.accessToken) {
+      throw new Error('No access token available');
+    }
+
+    try {
+      // Get list of message IDs with search query
+      const listResponse = await this.rateLimitedFetch(
+        `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=${maxResults}&q=${encodeURIComponent(query)}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${this.accessToken}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      if (!listResponse.ok) {
+        throw new Error(`Gmail API error: ${listResponse.status}`);
+      }
+
+      const listData = await listResponse.json();
+
+      if (!listData.messages) {
+        return [];
+      }
+
+      // Process messages in smaller batches to avoid rate limiting
+      const batchSize = 10;
+      const messages: ParsedEmail[] = [];
+      
+      for (let i = 0; i < listData.messages.length; i += batchSize) {
+        const batch = listData.messages.slice(i, i + batchSize);
+        
+        // Process batch sequentially to respect rate limits
+        for (const message of batch) {
+          try {
+            const messageResponse = await this.rateLimitedFetch(
+              `https://gmail.googleapis.com/gmail/v1/users/me/messages/${message.id}?format=full`,
+              {
+                headers: {
+                  'Authorization': `Bearer ${this.accessToken}`,
+                  'Content-Type': 'application/json'
+                }
+              }
+            );
+
+            if (messageResponse.ok) {
+              const messageData = await messageResponse.json();
+              const parsedMessage = this.parseMessage(messageData);
+              if (parsedMessage) {
+                messages.push(parsedMessage);
+              }
+            } else {
+              console.error(`Failed to fetch message ${message.id}: ${messageResponse.status}`);
+            }
+          } catch (error) {
+            console.error(`Error fetching message ${message.id}:`, error);
+          }
+        }
+        
+        // Add a small delay between batches
+        if (i + batchSize < listData.messages.length) {
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+      }
+
+      return messages;
+    } catch (error) {
+      console.error('Error searching messages:', error);
+      throw error;
+    }
+  }
+
   // Get Gmail messages with rate limiting
   async getMessages(maxResults: number = 50): Promise<ParsedEmail[]> {
     if (!this.accessToken) {

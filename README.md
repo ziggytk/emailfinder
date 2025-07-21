@@ -1,15 +1,36 @@
-# Gmail Email Finder
+# Utility Bill Finder
 
-A simple, modern React application that connects to your Gmail account and displays your top 50 emails with a clean interface.
+A smart React application that helps you find utility bills in your Gmail account. Connect with your Google account, select your utility providers, and automatically discover PDF bills from the past 6 months.
 
 ## Features
 
 - 🔐 **Secure Google OAuth Login** - Uses Google's official OAuth 2.0 flow
-- 📧 **Real Gmail Integration** - Connects directly to Gmail API
+- 📧 **Gmail Integration** - Searches your Gmail for utility bill PDFs
+- 🏢 **Utility Provider Selection** - Choose from major utility companies
+- 🔍 **Smart Domain Matching** - Automatically matches emails by provider domains
+- 📊 **Bill Details Extraction** - Extracts amounts, bill numbers, and dates
 - 🎨 **Modern UI** - Clean, responsive design with Tailwind CSS
-- 🔍 **Search Functionality** - Search emails by sender, subject, or content
 - 📱 **Mobile Responsive** - Works great on all devices
-- ⚡ **Fast Loading** - Optimized for performance
+- ⚡ **Rate Limited** - Respects Gmail API limits for reliable operation
+
+## Supported Utility Providers
+
+- **ConEdison** (coned.com, conedison.com)
+- **Pacific Gas & Electric** (pge.com, pgecorp.com)
+- **Duke Energy** (duke-energy.com, dukeenergy.com)
+- **National Grid** (nationalgrid.com, nationalgridus.com)
+- **Southern California Edison** (sce.com, scecorp.com)
+- **Exelon** (exeloncorp.com, exelon.com)
+- **Dominion Energy** (dominionenergy.com, dom.com)
+- **NextEra Energy** (nexteraenergy.com, fpl.com)
+
+## How It Works
+
+1. **Sign in** with your Google account
+2. **Select utility providers** from the list or search for specific companies
+3. **Search your Gmail** for PDF attachments from the past 6 months
+4. **View results** with filtering, sorting, and bill details
+5. **Export or manage** your utility bills
 
 ## Quick Start
 
@@ -48,92 +69,52 @@ VITE_GOOGLE_CLIENT_ID=your_google_client_id_here
 npm run dev
 ```
 
-The application will be available at `http://localhost:5173`
-
-## How it Works
-
-1. **Authentication**: Uses Google's OAuth 2.0 flow for secure authentication
-2. **Email Fetching**: Connects to Gmail API to fetch your top 50 emails
-3. **Data Processing**: Parses email headers and content for display
-4. **Search**: Provides client-side search across email content
-
-## Project Structure
-
-```
-src/
-├── components/          # React components
-│   ├── EmailDashboard.tsx  # Main dashboard
-│   ├── EmailList.tsx       # Email list display
-│   ├── Header.tsx          # App header
-│   ├── LoginScreen.tsx     # Login interface
-│   └── SearchBar.tsx       # Search functionality
-├── services/
-│   └── gmailApi.ts         # Gmail API integration
-├── types/
-│   └── email.ts            # TypeScript type definitions
-└── App.tsx                 # Main application component
-```
-
-## Technologies Used
-
-- **React 18** - Modern React with hooks
-- **TypeScript** - Type safety
-- **Vite** - Fast build tool
-- **Tailwind CSS** - Utility-first CSS framework
-- **Lucide React** - Beautiful icons
-- **Gmail API** - Official Google Gmail API
-- **Google OAuth 2.0** - Secure authentication
-
-## Security
-
-- Uses Google's official OAuth 2.0 flow
-- No server-side storage of credentials
-- Access tokens are stored locally and can be revoked
-- Follows Google's security best practices
-
-## Troubleshooting
-
-### Common Issues
-
-1. **"Failed to load Google API"**
-   - Make sure your Google Client ID is correct
-   - Check that your domain is added to authorized origins
-
-2. **"Authentication Error"**
-   - Clear browser cache and try again
-   - Check that Gmail API and People API are enabled
-
-3. **"No emails found"**
-   - Ensure you have emails in your Gmail inbox
-   - Check that the Gmail API has proper permissions
-
-### Development
-
+### 6. Build for production
 ```bash
-# Start development server
-npm run dev
-
-# Build for production
 npm run build
-
-# Preview production build
-npm run preview
-
-# Run linter
-npm run lint
 ```
 
-## License
+## Usage
 
-MIT License - feel free to use this project for your own purposes.
+1. **Login**: Click "Sign in with Google" and authorize the application
+2. **Select Providers**: Choose the utility companies you want to search for
+3. **Search**: Click "Search for Utility Bills" to scan your Gmail
+4. **Review Results**: Browse, filter, and sort your found utility bills
+5. **Manage**: Use the search and filter options to find specific bills
+
+## Technical Details
+
+- **Frontend**: React 18 with TypeScript
+- **Styling**: Tailwind CSS
+- **Authentication**: Google OAuth 2.0 Implicit Flow
+- **API**: Gmail API with rate limiting
+- **Build Tool**: Vite
+- **Icons**: Lucide React
+
+## Rate Limiting
+
+The application includes intelligent rate limiting to respect Gmail API quotas:
+- 100ms delay between API requests
+- Batch processing of messages (10 at a time)
+- Automatic retry on 429 errors
+- Sequential processing to avoid overwhelming the API
+
+## Privacy & Security
+
+- All authentication is handled by Google OAuth
+- No data is stored on our servers
+- Gmail access is read-only
+- Rate limiting prevents API abuse
+- All processing happens in your browser
 
 ## Contributing
 
 1. Fork the repository
 2. Create a feature branch
 3. Make your changes
-4. Submit a pull request
+4. Test thoroughly
+5. Submit a pull request
 
----
+## License
 
-**Note**: This application requires a Google account with Gmail access. Make sure you have the necessary permissions to access the Gmail API. 
+This project is licensed under the MIT License. 
