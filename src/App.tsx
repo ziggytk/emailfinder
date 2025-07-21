@@ -11,9 +11,22 @@ function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [authError, setAuthError] = useState<string | null>(null);
 
-  useEffect(() => {
-    checkExistingAuth();
-  }, [checkExistingAuth]);
+  const loadUserProfile = useCallback(async () => {
+    try {
+      const profile = await gmailApiService.getUserProfile();
+      const user: User = {
+        id: '1',
+        name: profile.name,
+        email: profile.email,
+        avatar: profile.avatar
+      };
+      setUser(user);
+      setIsLoggedIn(true);
+    } catch (error) {
+      console.error('Error loading user profile:', error);
+      throw error;
+    }
+  }, []);
 
   const checkExistingAuth = useCallback(async () => {
     try {
@@ -35,24 +48,11 @@ function App() {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [loadUserProfile]);
 
-  const loadUserProfile = async () => {
-    try {
-      const profile = await gmailApiService.getUserProfile();
-      const user: User = {
-        id: '1',
-        name: profile.name,
-        email: profile.email,
-        avatar: profile.avatar
-      };
-      setUser(user);
-      setIsLoggedIn(true);
-    } catch (error) {
-      console.error('Error loading user profile:', error);
-      throw error;
-    }
-  };
+  useEffect(() => {
+    checkExistingAuth();
+  }, [checkExistingAuth]);
 
   const handleLogin = async () => {
     try {
@@ -108,7 +108,7 @@ function App() {
               setAuthError(null);
               setIsLoading(false);
             }}
-            className="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition-colors duration-200"
+            className="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors"
           >
             Try Again
           </button>
@@ -117,12 +117,17 @@ function App() {
     );
   }
 
-  // Show main application
-  if (isLoggedIn && user) {
-    return <EmailDashboard user={user} onLogout={handleLogout} />;
+  // Show login screen if not authenticated
+  if (!isLoggedIn) {
+    return (
+      <LoginScreen onLogin={handleLogin} isLoading={isLoading} />
+    );
   }
 
-  return <LoginScreen onLogin={handleLogin} />;
+  // Show main dashboard if authenticated
+  return (
+    <EmailDashboard user={user!} onLogout={handleLogout} />
+  );
 }
 
 export default App;
