@@ -280,27 +280,33 @@ class GmailApiService {
 
   // Search Gmail messages with a specific query
   async searchMessages(query: string, maxResults: number = 50): Promise<ParsedEmail[]> {
+    console.log('🔍 searchMessages called with query:', query);
+    
     if (!this.accessToken) {
       throw new Error('No access token available');
     }
 
     try {
+      const url = `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=${maxResults}&q=${encodeURIComponent(query)}`;
+      console.log('🔍 Making request to:', url);
+      
       // Get list of message IDs with search query
-      const listResponse = await this.rateLimitedFetch(
-        `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=${maxResults}&q=${encodeURIComponent(query)}`,
-        {
-          headers: {
-            'Authorization': `Bearer ${this.accessToken}`,
-            'Content-Type': 'application/json'
-          }
+      const listResponse = await this.rateLimitedFetch(url, {
+        headers: {
+          'Authorization': `Bearer ${this.accessToken}`,
+          'Content-Type': 'application/json'
         }
-      );
+      });
 
+      console.log('📡 Response status:', listResponse.status);
+      
       if (!listResponse.ok) {
+        console.error('❌ Gmail API error:', listResponse.status);
         throw new Error(`Gmail API error: ${listResponse.status}`);
       }
 
       const listData = await listResponse.json();
+      console.log('📊 List data:', listData);
 
       if (!listData.messages) {
         return [];

@@ -93,26 +93,37 @@ function App() {
   };
 
   const handleProvidersSelected = (providers: UtilityProvider[]) => {
+    console.log('🏢 handleProvidersSelected called with:', providers);
     setSelectedProviders(providers);
     // Update the utility service with selected providers
     utilityService.clearProviders();
     providers.forEach(provider => utilityService.addProvider(provider));
+    console.log('✅ Providers updated in utility service');
   };
 
   const handleSearchBills = async () => {
+    console.log('🔍 handleSearchBills called');
+    console.log('Selected providers:', selectedProviders);
+    
     if (selectedProviders.length === 0) {
+      console.log('❌ No providers selected');
       return;
     }
 
+    console.log('✅ Starting search...');
     setIsSearching(true);
     setAppState('searching');
 
     try {
+      console.log('🔍 Calling utilityService.searchUtilityBills...');
       const result = await utilityService.searchUtilityBills(6); // 6 months
+      console.log('📊 Search result:', result);
+      
       setBills(result.bills);
       setAppState('results');
+      console.log('✅ Search completed, showing results');
     } catch (error) {
-      console.error('Error searching for bills:', error);
+      console.error('❌ Error searching for bills:', error);
       setAuthError('Failed to search for utility bills');
       setAppState('provider-selection');
     } finally {
@@ -204,7 +215,10 @@ function App() {
           <div className="max-w-4xl mx-auto px-6 pb-8">
             <div className="text-center">
               <button
-                onClick={handleSearchBills}
+                onClick={() => {
+                  console.log('🔘 Search button clicked!');
+                  handleSearchBills();
+                }}
                 className="px-8 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
               >
                 Search for Utility Bills
