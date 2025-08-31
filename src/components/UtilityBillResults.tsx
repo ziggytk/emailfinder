@@ -7,13 +7,17 @@ interface UtilityBillResultsProps {
   isLoading: boolean;
   onSearchAgain: () => void;
   onBackToSelection: () => void;
+  onExtractAllBills?: () => void;
+  isExtracting?: boolean;
 }
 
 export const UtilityBillResults: React.FC<UtilityBillResultsProps> = ({
   bills,
   isLoading,
   onSearchAgain,
-  onBackToSelection
+  onBackToSelection,
+  onExtractAllBills,
+  isExtracting
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedProvider, setSelectedProvider] = useState<string>('all');
@@ -125,6 +129,24 @@ export const UtilityBillResults: React.FC<UtilityBillResultsProps> = ({
             >
               Change Providers
             </button>
+            {onExtractAllBills && bills.some(bill => bill.pdfProcessingStatus === 'completed' && bill.imageUrls && bill.imageUrls.length > 0) && (
+              <button
+                onClick={onExtractAllBills}
+                disabled={isExtracting}
+                className="px-6 py-3 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-xl hover:from-green-700 hover:to-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 font-semibold shadow-lg hover:shadow-xl"
+              >
+                {isExtracting ? (
+                  <div className="flex items-center space-x-2">
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                    <span>Extracting...</span>
+                  </div>
+                ) : (
+                  <div className="flex items-center space-x-2">
+                    <span>Extract All Bills</span>
+                  </div>
+                )}
+              </button>
+            )}
             <button
               onClick={onSearchAgain}
               className="px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl hover:from-blue-700 hover:to-indigo-700 transition-all duration-200 font-semibold shadow-lg hover:shadow-xl"
