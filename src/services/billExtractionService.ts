@@ -12,30 +12,81 @@ export class BillExtractionService {
         throw new Error('User not authenticated');
       }
 
-      const { error } = await supabase
+      // Check for existing entry with same image URL
+      // Use a more robust approach to avoid URL encoding issues
+      const { data: existingData, error: checkError } = await supabase
         .from('bill_extractions')
-        .insert({
-          user_id: user.id,
-          image_url: billData.imageUrl,
-          owner_name: billData.ownerName,
-          home_address: billData.homeAddress,
-          account_number: billData.accountNumber,
-          bill_due_date: billData.billDueDate,
-          is_auto_pay_enabled: billData.isAutoPayEnabled,
-          average_daily_electric_usage: billData.averageDailyElectricUsage,
-          next_billing_date: billData.nextBillingDate,
-          billing_period_start: billData.billingPeriodStart,
-          billing_period_end: billData.billingPeriodEnd,
-          billing_days: billData.billingDays,
-          total_amount_due: billData.totalAmountDue,
-          confidence_score: billData.confidenceScore,
-          status: billData.status,
-          was_edited: billData.wasEdited
-        });
+        .select('id')
+        .eq('user_id', user.id)
+        .ilike('image_url', billData.imageUrl.split('?')[0] + '%') // Match base URL without query params
+        .limit(1);
 
-      if (error) {
-        throw error;
+      if (checkError) {
+        throw checkError;
       }
+
+      const existingRecord = existingData && existingData.length > 0 ? existingData[0] : null;
+
+      if (existingRecord) {
+        console.log('⚠️ Bill extraction already exists for this image URL, updating instead');
+        // Update existing record instead of creating duplicate
+        const { error: updateError } = await supabase
+          .from('bill_extractions')
+          .update({
+            owner_name: billData.ownerName,
+            home_address: billData.homeAddress,
+            account_number: billData.accountNumber,
+            bill_due_date: billData.billDueDate,
+            is_auto_pay_enabled: billData.isAutoPayEnabled,
+            average_daily_electric_usage: billData.averageDailyElectricUsage,
+            next_billing_date: billData.nextBillingDate,
+            billing_period_start: billData.billingPeriodStart,
+            billing_period_end: billData.billingPeriodEnd,
+            billing_days: billData.billingDays,
+            total_amount_due: billData.totalAmountDue,
+            confidence_score: billData.confidenceScore,
+            address_match_score: billData.addressMatchScore,
+            matched_property_address: billData.matchedPropertyAddress,
+            status: billData.status,
+            was_edited: false, // Reset to false since this is a fresh extraction
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', existingRecord.id);
+
+        if (updateError) {
+          throw updateError;
+        }
+      } else {
+        // Insert new record
+        const { error } = await supabase
+          .from('bill_extractions')
+          .insert({
+            user_id: user.id,
+            image_url: billData.imageUrl,
+            owner_name: billData.ownerName,
+            home_address: billData.homeAddress,
+            account_number: billData.accountNumber,
+            bill_due_date: billData.billDueDate,
+            is_auto_pay_enabled: billData.isAutoPayEnabled,
+            average_daily_electric_usage: billData.averageDailyElectricUsage,
+            next_billing_date: billData.nextBillingDate,
+            billing_period_start: billData.billingPeriodStart,
+            billing_period_end: billData.billingPeriodEnd,
+            billing_days: billData.billingDays,
+            total_amount_due: billData.totalAmountDue,
+            confidence_score: billData.confidenceScore,
+            address_match_score: billData.addressMatchScore,
+            matched_property_address: billData.matchedPropertyAddress,
+            status: billData.status,
+            was_edited: billData.wasEdited
+          });
+
+        if (error) {
+          throw error;
+        }
+      }
+
+      return { success: true };
 
       return { success: true };
     } catch (error) {
@@ -83,6 +134,8 @@ export class BillExtractionService {
         billingDays: row.billing_days,
         totalAmountDue: row.total_amount_due,
         confidenceScore: row.confidence_score,
+        addressMatchScore: row.address_match_score,
+        matchedPropertyAddress: row.matched_property_address,
         status: row.status,
         wasEdited: row.was_edited,
         createdAt: row.created_at,
@@ -247,6 +300,55 @@ export class BillExtractionService {
       return { success: true };
     } catch (error) {
       console.error('Error updating bill extraction:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error occurred'
+      };
+    }
+  }
+
+  /**
+   * Generate a fresh access token for viewing an image
+   */
+  async generateImageAccessToken(imageUrl: string): Promise<{ success: boolean; url?: string; error?: string }> {
+    try {
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      if (authError || !user) {
+        throw new Error('User not authenticated');
+      }
+
+      // Extract the file path from the Supabase URL
+      // The URL format is: https://project.supabase.co/storage/v1/object/public/bucket/path/to/file
+      const urlParts = imageUrl.split('/');
+      const bucketIndex = urlParts.findIndex(part => part === 'utility-bills');
+      
+      if (bucketIndex === -1) {
+        throw new Error('Invalid storage URL format');
+      }
+      
+      // Get everything after the bucket name as the file path
+      const filePath = urlParts.slice(bucketIndex + 1).join('/');
+      
+      console.log('🔍 Extracting file path from URL:', {
+        originalUrl: imageUrl,
+        filePath: filePath,
+        urlParts: urlParts
+      });
+      
+      // Generate a signed URL that expires in 1 hour
+      const { data, error } = await supabase.storage
+        .from('utility-bills')
+        .createSignedUrl(filePath, 3600); // 1 hour expiry
+
+      if (error) {
+        console.error('❌ Supabase storage error:', error);
+        throw error;
+      }
+
+      console.log('✅ Generated signed URL successfully');
+      return { success: true, url: data.signedUrl };
+    } catch (error) {
+      console.error('Error generating image access token:', error);
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Unknown error occurred'

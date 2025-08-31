@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { BillData } from '../types/bill';
 import { BillDetailModal } from './BillDetailModal';
+import { billExtractionService } from '../services/billExtractionService';
 
 interface BillDataTableProps {
   bills: BillData[];
@@ -203,6 +204,15 @@ export const BillDataTable: React.FC<BillDataTableProps> = ({ bills, onDelete, o
               </th>
               <th 
                 className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                onClick={() => handleSort('addressMatchScore')}
+              >
+                Address Match
+                {sortField === 'addressMatchScore' && (
+                  <span className="ml-1">{sortDirection === 'asc' ? '↑' : '↓'}</span>
+                )}
+              </th>
+              <th 
+                className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
                 onClick={() => handleSort('billDueDate')}
               >
                 Due Date
@@ -245,6 +255,9 @@ export const BillDataTable: React.FC<BillDataTableProps> = ({ bills, onDelete, o
                 {sortField === 'createdAt' && (
                   <span className="ml-1">{sortDirection === 'asc' ? '↑' : '↓'}</span>
                 )}
+              </th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Image
               </th>
             </tr>
           </thead>
@@ -305,6 +318,19 @@ export const BillDataTable: React.FC<BillDataTableProps> = ({ bills, onDelete, o
                   </span>
                 </td>
                 <td className="px-4 py-3 text-sm text-gray-900">
+                  <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                    bill.addressMatchScore >= 75 ? 'bg-green-100 text-green-800' : 
+                    bill.addressMatchScore >= 50 ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'
+                  }`}>
+                    {bill.addressMatchScore}%
+                  </span>
+                  {bill.matchedPropertyAddress && (
+                    <div className="text-xs text-gray-500 mt-1 truncate max-w-xs" title={bill.matchedPropertyAddress}>
+                      Belongs to: {bill.matchedPropertyAddress}
+                    </div>
+                  )}
+                </td>
+                <td className="px-4 py-3 text-sm text-gray-900">
                   {formatDate(bill.billDueDate)}
                 </td>
                 <td className="px-4 py-3 text-sm font-medium text-gray-900">
@@ -325,12 +351,34 @@ export const BillDataTable: React.FC<BillDataTableProps> = ({ bills, onDelete, o
                 <td className="px-4 py-3 text-sm text-gray-900">
                   {formatDate(bill.createdAt)}
                 </td>
+                <td className="px-4 py-3 text-sm text-gray-900">
+                  <button
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      try {
+                        const result = await billExtractionService.generateImageAccessToken(bill.imageUrl);
+                        if (result.success && result.url) {
+                          window.open(result.url, '_blank', 'noopener,noreferrer');
+                        } else {
+                          console.error('Failed to generate access token:', result.error);
+                          alert('Failed to access image. Please try again.');
+                        }
+                      } catch (error) {
+                        console.error('Error accessing image:', error);
+                        alert('Failed to access image. Please try again.');
+                      }
+                    }}
+                    className="text-blue-600 hover:text-blue-800 underline text-xs bg-transparent border-none cursor-pointer"
+                  >
+                    View Image
+                  </button>
+                </td>
                   </tr>
                   
                   {/* Expanded row with approve/reject buttons */}
                   {isExpanded && (
                     <tr className="bg-gray-50">
-                      <td colSpan={10} className="px-4 py-3">
+                      <td colSpan={12} className="px-4 py-3">
                         <div className="flex items-center justify-between">
                           <div className="flex items-center space-x-4">
                             <span className="text-sm text-gray-600">Actions:</span>

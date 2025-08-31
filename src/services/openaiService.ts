@@ -29,7 +29,7 @@ export class OpenAIService {
           messages: [
             {
               role: 'system',
-              content: `You are an expert at extracting utility bill information from images. 
+              content: `You are an expert at extracting utility bill information from images and determining if bills belong to specific properties. 
               Extract the following information from the provided image and return it as a JSON object:
               
               Required fields:
@@ -45,12 +45,25 @@ export class OpenAIService {
               - billingDays: Number of days in billing period (integer)
               - totalAmountDue: Total amount due in dollars (decimal number)
               - confidenceScore: Your confidence in the extraction accuracy (0-100, where 100 is completely confident)
+              - propertyAssociationScore: Your confidence that this bill belongs to one of the provided property addresses (0-100, where 100 is completely certain it belongs)
+              - associatedPropertyAddress: The property address this bill belongs to, or null if propertyAssociationScore < 75
               
               For confidenceScore, consider:
               - Image clarity and readability
               - Completeness of information visible
               - Consistency of data across the bill
               - Any unclear or missing fields
+              
+              For propertyAssociationScore, determine if this bill belongs to one of the provided properties:
+              - 100: Certain this bill belongs to the property (exact address match)
+              - 90-99: Very confident this bill belongs to the property (minor address differences like "Rd" vs "Road")
+              - 80-89: Confident this bill belongs to the property (same street, city, state, zip with variations)
+              - 75-79: Reasonably confident this bill belongs to the property (same location with some differences)
+              - 0-74: Not confident this bill belongs to any of the provided properties
+              
+              For associatedPropertyAddress, return the property address this bill belongs to, or -1 if propertyAssociationScore < 75.
+              
+              IMPORTANT: You MUST provide both propertyAssociationScore and associatedPropertyAddress in your response, even if no property addresses are provided (in which case use 0 for propertyAssociationScore and null for associatedPropertyAddress).
               
               If any information is not clearly visible or cannot be determined, use null for that field.
               Return ONLY the JSON object, no additional text or explanation.`
@@ -60,7 +73,15 @@ export class OpenAIService {
               content: [
                 {
                   type: 'text',
-                  text: 'Please extract the bill information from this image:'
+                  text: `Please extract the bill information from this image and determine if this bill belongs to one of the following properties:
+                  
+Properties to check against:
+${request.propertyAddresses && request.propertyAddresses.length > 0 
+  ? request.propertyAddresses.map((addr, index) => `${index + 1}. ${addr}`).join('\n')
+  : 'No properties provided'
+}
+
+IMPORTANT: You MUST include propertyAssociationScore (0-100) and associatedPropertyAddress in your JSON response. If no properties are provided, use propertyAssociationScore: 0 and associatedPropertyAddress: null.`
                 },
                 {
                   type: 'image_url',
@@ -89,28 +110,56 @@ export class OpenAIService {
       }
 
       console.log('📄 Raw OpenAI response:', content);
+      console.log('🔍 Property addresses provided:', request.propertyAddresses);
 
       // Parse the JSON response
       let extractedData;
       try {
-        // Try to extract JSON from the response (in case there's extra text)
-        const jsonMatch = content.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
+              // Try to extract JSON from the response (in case there's extra text)
+      const jsonMatch = content.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        try {
           extractedData = JSON.parse(jsonMatch[0]);
-        } else {
-          extractedData = JSON.parse(content);
+        } catch (parseError) {
+          console.error('❌ Failed to parse JSON match:', parseError);
+          throw new Error('OpenAI returned invalid JSON format');
         }
+      } else {
+        // If no JSON found, OpenAI couldn't extract bill data
+        console.log('⚠️ OpenAI could not extract bill data from image');
+        console.log('📄 OpenAI response:', content);
+        throw new Error('Unable to extract bill information from this image. Please try a different image.');
+      }
+        console.log('🔍 Parsed extracted data:', extractedData);
+        console.log('🔍 Property association fields in parsed data:', {
+          propertyAssociationScore: extractedData.propertyAssociationScore,
+          associatedPropertyAddress: extractedData.associatedPropertyAddress,
+          hasPropertyAssociationScore: 'propertyAssociationScore' in extractedData,
+          hasAssociatedPropertyAddress: 'associatedPropertyAddress' in extractedData
+        });
       } catch (parseError) {
         console.error('❌ Failed to parse OpenAI response:', parseError);
+        console.error('❌ Raw content that failed to parse:', content);
         throw new Error('Failed to parse extracted data from OpenAI');
       }
+
+      // Use property association values from OpenAI response
+      const extractedAddress = extractedData.homeAddress || 'Unknown';
+      const propertyAssociationScore = parseFloat(extractedData.propertyAssociationScore) || 0;
+      const associatedPropertyAddress = extractedData.associatedPropertyAddress || undefined;
+      
+      console.log('🏠 Extracted address from bill:', extractedAddress);
+      console.log('📊 Property association score from OpenAI:', extractedData.propertyAssociationScore);
+      console.log('🎯 Parsed property association score:', propertyAssociationScore);
+      console.log('📍 Associated property address from OpenAI:', extractedData.associatedPropertyAddress);
+      console.log('🎯 Final associated property address:', associatedPropertyAddress);
 
       // Validate and create the bill data object
       const billData: BillData = {
         id: crypto.randomUUID(),
         imageUrl: request.imageUrl,
         ownerName: extractedData.ownerName || 'Unknown',
-        homeAddress: extractedData.homeAddress || 'Unknown',
+        homeAddress: extractedAddress,
         accountNumber: extractedData.accountNumber || 'Unknown',
         billDueDate: extractedData.billDueDate || new Date().toISOString().split('T')[0],
         isAutoPayEnabled: extractedData.isAutoPayEnabled || false,
@@ -121,6 +170,8 @@ export class OpenAIService {
         billingDays: parseInt(extractedData.billingDays) || 0,
         totalAmountDue: parseFloat(extractedData.totalAmountDue) || 0,
         confidenceScore: parseFloat(extractedData.confidenceScore) || 0,
+        addressMatchScore: propertyAssociationScore,
+        matchedPropertyAddress: associatedPropertyAddress,
         status: 'pending',
         wasEdited: false,
         createdAt: new Date().toISOString(),
@@ -128,6 +179,8 @@ export class OpenAIService {
       };
 
       console.log('✅ Bill data extracted successfully:', billData);
+      console.log('🏠 Final address match score in bill data:', billData.addressMatchScore);
+      console.log('📍 Final matched property address in bill data:', billData.matchedPropertyAddress);
 
       return {
         success: true,
@@ -142,6 +195,8 @@ export class OpenAIService {
       };
     }
   }
+
+
 
   /**
    * Test the OpenAI connection

@@ -22,12 +22,35 @@ export const BillDetailModal: React.FC<BillDetailModalProps> = ({
   const [isEditing, setIsEditing] = useState(false);
   const [editedData, setEditedData] = useState<BillData | null>(null);
   const [hasChanges, setHasChanges] = useState(false);
+  const [imageUrl, setImageUrl] = useState<string>('');
+  const [imageLoading, setImageLoading] = useState(false);
 
   useEffect(() => {
     if (bill) {
       setEditedData({ ...bill });
       setHasChanges(false);
       setIsEditing(false);
+      
+      // Generate signed URL for the image
+      const loadImage = async () => {
+        setImageLoading(true);
+        try {
+          const result = await billExtractionService.generateImageAccessToken(bill.imageUrl);
+          if (result.success && result.url) {
+            setImageUrl(result.url);
+          } else {
+            console.error('Failed to generate image access token:', result.error);
+            setImageUrl(bill.imageUrl); // Fallback to original URL
+          }
+        } catch (error) {
+          console.error('Error loading image:', error);
+          setImageUrl(bill.imageUrl); // Fallback to original URL
+        } finally {
+          setImageLoading(false);
+        }
+      };
+      
+      loadImage();
     }
   }, [bill]);
 
@@ -147,44 +170,74 @@ export const BillDetailModal: React.FC<BillDetailModalProps> = ({
             </div>
           </div>
 
-          {/* Extracted Information */}
-          <div className="mb-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-gray-900">Extracted Information</h3>
-              {!isEditing ? (
-                <button
-                  onClick={handleEdit}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
-                >
-                  Edit Data
-                </button>
-              ) : (
-                <div className="flex space-x-2">
+          {/* Property Association Banner */}
+          <div className={`mb-6 p-4 rounded-lg border ${
+            bill.addressMatchScore >= 75 ? 'bg-green-50 border-green-200' : 
+            bill.addressMatchScore >= 50 ? 'bg-yellow-50 border-yellow-200' : 'bg-red-50 border-red-200'
+          }`}>
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="font-semibold text-gray-900">Property Association</h3>
+                <p className="text-sm text-gray-600">
+                  {bill.addressMatchScore >= 75 ? 'High confidence - Bill belongs to your property' :
+                   bill.addressMatchScore >= 50 ? 'Medium confidence - Bill may belong to your property' :
+                   'Low confidence - Bill likely belongs to a different property'}
+                </p>
+                {bill.matchedPropertyAddress && (
+                  <p className="text-sm text-gray-600 mt-1">
+                    <span className="font-medium">Associated with:</span> {bill.matchedPropertyAddress}
+                  </p>
+                )}
+              </div>
+              <div className={`text-2xl font-bold ${
+                bill.addressMatchScore >= 75 ? 'text-green-600' : 
+                bill.addressMatchScore >= 50 ? 'text-yellow-600' : 'text-red-600'
+              }`}>
+                {bill.addressMatchScore}%
+              </div>
+            </div>
+          </div>
+
+          {/* Content Layout - Information and Image Side by Side */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+            {/* Left Column - Extracted Information */}
+            <div>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">Extracted Information</h3>
+                {!isEditing ? (
                   <button
-                    onClick={handleCancelEdit}
-                    className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors text-sm font-medium"
+                    onClick={handleEdit}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
                   >
-                    Cancel
+                    Edit Data
                   </button>
-                  <button
-                    onClick={handleSaveEdit}
-                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm font-medium"
-                  >
-                    Save Changes
-                  </button>
+                ) : (
+                  <div className="flex space-x-2">
+                    <button
+                      onClick={handleCancelEdit}
+                      className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors text-sm font-medium"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleSaveEdit}
+                      className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm font-medium"
+                    >
+                      Save Changes
+                    </button>
+                  </div>
+                )}
+              </div>
+              
+              {hasChanges && (
+                <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                  <p className="text-sm text-yellow-800">
+                    ⚠️ You have unsaved changes. Click "Save Changes" to keep your edits.
+                  </p>
                 </div>
               )}
-            </div>
-            
-            {hasChanges && (
-              <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-                <p className="text-sm text-yellow-800">
-                  ⚠️ You have unsaved changes. Click "Save Changes" to keep your edits.
-                </p>
-              </div>
-            )}
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 gap-4">
               <div className="bg-gray-50 p-4 rounded-lg">
                 <label className="block text-sm font-medium text-gray-600 mb-1">Owner Name</label>
                 {isEditing ? (
@@ -347,21 +400,29 @@ export const BillDetailModal: React.FC<BillDetailModalProps> = ({
             </div>
           </div>
 
-          {/* Original Image */}
-          <div className="mb-6">
+          {/* Right Column - Original Image */}
+          <div>
             <h3 className="text-lg font-semibold text-gray-900 mb-4">Original Bill Image</h3>
-            <div className="border border-gray-200 rounded-lg overflow-hidden">
-              <img 
-                src={bill.imageUrl} 
-                alt="Utility bill" 
-                className="w-full h-auto max-h-96 object-contain bg-gray-100"
-                onError={(e) => {
-                  const target = e.target as HTMLImageElement;
-                  target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAwIiBoZWlnaHQ9IjMwMCIgdmlld0JveD0iMCAwIDQwMCAzMDAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSI0MDAiIGhlaWdodD0iMzAwIiBmaWxsPSIjRjNGNEY2Ii8+Cjx0ZXh0IHg9IjIwMCIgeT0iMTUwIiBmb250LWZhbWlseT0iQXJpYWwiIGZvbnQtc2l6ZT0iMTYiIGZpbGw9IiM5Q0EzQUYiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj5JbWFnZSBub3QgYXZhaWxhYmxlPC90ZXh0Pgo8L3N2Zz4K';
-                }}
-              />
+            <div className="border border-gray-200 rounded-lg overflow-hidden bg-gray-100 sticky top-4">
+              {imageLoading ? (
+                <div className="flex items-center justify-center h-96">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                  <span className="ml-2 text-gray-600">Loading image...</span>
+                </div>
+              ) : (
+                <img 
+                  src={imageUrl || bill.imageUrl} 
+                  alt="Utility bill" 
+                  className="w-full h-auto max-h-[600px] object-contain"
+                  onError={(e) => {
+                    const target = e.target as HTMLImageElement;
+                    target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAwIiBoZWlnaHQ9IjMwMCIgdmlld0JveD0iMCAwIDQwMCAzMDAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSI0MDAiIGhlaWdodD0iMzAwIiBmaWxsPSIjRjNGNEY2Ii8+Cjx0ZXh0IHg9IjIwMCIgeT0iMTUwIiBmb250LWZhbWlseT0iQXJpYWwiIGZvbnQtc2l6ZT0iMTYiIGZpbGw9IiM5Q0EzQUYiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj5JbWFnZSBub3QgYXZhaWxhYmxlPC90ZXh0Pgo8L3N2Zz4K';
+                  }}
+                />
+              )}
             </div>
           </div>
+        </div>
 
                     {/* Action Buttons */}
           <div className="flex justify-end space-x-4 pt-4 border-t border-gray-200">

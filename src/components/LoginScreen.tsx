@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Mail, Shield, Zap, AlertCircle } from 'lucide-react';
+import { Shield, Zap, AlertCircle, Home } from 'lucide-react';
 
 interface LoginScreenProps {
   onLogin: () => void;
@@ -25,18 +25,16 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-red-50 flex items-center justify-center p-4">
       <div className="max-w-md w-full">
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-white rounded-full shadow-lg mb-4">
-            <Mail className="w-8 h-8 text-red-500" />
+          <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-full shadow-lg mb-4">
+            <Home className="w-8 h-8 text-white" />
           </div>
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Gmail Email Finder</h1>
-          <p className="text-gray-600">Connect to your Gmail account to view your emails</p>
         </div>
 
         <div className="bg-white rounded-2xl shadow-xl p-8 border border-gray-100">
           <div className="space-y-6">
             <div className="text-center">
-              <h2 className="text-xl font-semibold text-gray-900 mb-2">Sign in with Google</h2>
-              <p className="text-sm text-gray-600">Access your Gmail messages securely</p>
+              <h2 className="text-xl font-semibold text-gray-900 mb-2">utilify.ai</h2>
+              <p className="text-sm text-gray-600 mb-4">utilities, simplified. We make it easy to track, manage, and pay your property portfolio's utilities</p>
             </div>
 
             {error && (
@@ -87,9 +85,9 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
               </div>
               <div className="text-center">
                 <div className="w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-2">
-                  <Mail className="w-5 h-5 text-purple-600" />
+                  <Zap className="w-5 h-5 text-purple-600" />
                 </div>
-                <p className="text-xs text-gray-600 font-medium">Real Gmail</p>
+                <p className="text-xs text-gray-600 font-medium">Real-time analytics</p>
               </div>
             </div>
           </div>
@@ -97,7 +95,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
 
         <div className="text-center mt-6">
           <p className="text-sm text-gray-500">
-            Your Gmail data is accessed securely via Google's official API
+            Terms of Service | Privacy Policy | Security
           </p>
         </div>
       </div>

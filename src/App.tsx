@@ -3,6 +3,7 @@ import { LoginScreen } from './components/LoginScreen';
 import { UtilityProviderSelection } from './components/UtilityProviderSelection';
 import { UtilityBillResults } from './components/UtilityBillResults';
 import { BillExtractionModal } from './components/BillExtractionModal';
+import { DebugBillModal } from './components/DebugBillModal';
 import { BillDataTable } from './components/BillDataTable';
 import { gmailApiService } from './services/gmailApi';
 import { utilityService } from './services/utilityService';
@@ -26,6 +27,7 @@ export default function App() {
   const [isExtracting, setIsExtracting] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [showBillExtractionModal, setShowBillExtractionModal] = useState(false);
+  const [showDebugBillModal, setShowDebugBillModal] = useState(false);
 
 
   const loadUserProfile = useCallback(async () => {
@@ -160,8 +162,29 @@ export default function App() {
     setAppState('provider-selection');
   };
 
-  const handleBillExtracted = (billData: BillData) => {
-    setExtractedBills(prev => [...prev, billData]);
+  // Get unique property addresses from selected accounts
+  const getPropertyAddresses = (): string[] => {
+    const addresses = selectedAccounts.map(account => {
+      const addr = account.address;
+      return `${addr.street}, ${addr.city}, ${addr.state} ${addr.zipCode}`;
+    });
+    const uniqueAddresses = [...new Set(addresses)]; // Remove duplicates
+    console.log('🏘️ Property addresses for matching:', uniqueAddresses);
+    return uniqueAddresses;
+  };
+
+  const handleBillExtracted = async (billData: BillData) => {
+    // Refresh the entire list to ensure we have the latest data from database
+    try {
+      const response = await billExtractionService.getBillExtractions();
+      if (response.success && response.data) {
+        setExtractedBills(response.data);
+      }
+    } catch (error) {
+      console.error('Error refreshing bill extractions:', error);
+      // Fallback to adding the new bill to the list
+      setExtractedBills(prev => [...prev, billData]);
+    }
     setShowBillExtractionModal(false);
   };
 
@@ -210,6 +233,10 @@ export default function App() {
     setShowBillExtractionModal(true);
   };
 
+  const handleOpenDebugBillModal = () => {
+    setShowDebugBillModal(true);
+  };
+
   const handleExtractAllBills = async () => {
     setIsExtracting(true);
     try {
@@ -222,12 +249,20 @@ export default function App() {
 
       console.log(`🔍 Starting bulk extraction for ${billsWithImages.length} bills`);
 
+      // Get property addresses for address matching
+      const propertyAddresses = getPropertyAddresses();
+      console.log('🔍 Bulk extraction - Property addresses:', propertyAddresses);
+      
       // Extract data from each image URL
       const extractionPromises = billsWithImages.flatMap(bill => 
         bill.imageUrls!.map(async (imageUrl) => {
           try {
             console.log(`📄 Extracting from: ${imageUrl}`);
-            const response = await openaiService.extractBillData({ imageUrl });
+            console.log(`🏘️ Using property addresses:`, propertyAddresses);
+            const response = await openaiService.extractBillData({ 
+              imageUrl,
+              propertyAddresses 
+            });
             
             if (response.success && response.data) {
               // Save to database
@@ -250,16 +285,25 @@ export default function App() {
         })
       );
 
-      const results = await Promise.all(extractionPromises);
-      const successfulExtractions = results.filter((result): result is BillData => result !== null);
+      const results = await Promise.allSettled(extractionPromises);
+      const successfulExtractions = results
+        .filter((result): result is PromiseFulfilledResult<BillData | null> => result.status === 'fulfilled')
+        .map(result => result.value)
+        .filter((result): result is BillData => result !== null);
 
-      console.log(`✅ Bulk extraction completed: ${successfulExtractions.length} successful out of ${billsWithImages.length} bills`);
+      const failedCount = results.filter(result => result.status === 'rejected').length;
+
+      console.log(`✅ Bulk extraction completed: ${successfulExtractions.length} successful, ${failedCount} failed out of ${billsWithImages.length} bills`);
 
       // Update the extracted bills list
       setExtractedBills(prev => [...prev, ...successfulExtractions]);
 
       // Show success message
-      alert(`Successfully extracted ${successfulExtractions.length} bills! Check the "Extracted Bill Data" section below.`);
+      if (successfulExtractions.length > 0) {
+        alert(`Successfully extracted ${successfulExtractions.length} bills! ${failedCount > 0 ? `${failedCount} bills failed to process.` : ''} Check the "Extracted Bill Data" section below.`);
+      } else {
+        alert(`No bills were successfully extracted. ${failedCount} bills failed to process. Please try individual extraction or check the console for details.`);
+      }
 
     } catch (error) {
       console.error('❌ Bulk extraction failed:', error);
@@ -332,12 +376,12 @@ export default function App() {
                   <div className="flex-shrink-0">
                     <div className="w-12 h-12 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-xl flex items-center justify-center">
                       <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
                       </svg>
                     </div>
                   </div>
                   <div>
-                    <h1 className="text-3xl font-bold text-gray-900">Utility Bill Finder</h1>
+                    <h1 className="text-3xl font-bold text-gray-900">utilify.ai</h1>
                     <p className="text-gray-600">Welcome back, {user?.name}</p>
                   </div>
                 </div>
@@ -417,6 +461,8 @@ export default function App() {
                             <span>Extract Bill from Image</span>
                           </div>
                         </button>
+
+
                       </div>
                     </div>
                   )}
@@ -454,12 +500,12 @@ export default function App() {
                   <div className="flex-shrink-0">
                     <div className="w-12 h-12 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-xl flex items-center justify-center">
                       <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
                       </svg>
                     </div>
                   </div>
                   <div>
-                    <h1 className="text-3xl font-bold text-gray-900">Utility Bill Finder</h1>
+                    <h1 className="text-3xl font-bold text-gray-900">utilify.ai</h1>
                     <p className="text-gray-600">Welcome back, {user?.name}</p>
                   </div>
                 </div>
@@ -475,20 +521,103 @@ export default function App() {
 
           <div className="max-w-7xl mx-auto px-6 py-8">
             <div className="space-y-8">
-              {/* Extracted Bills Section */}
-              {extractedBills.length > 0 && (
+              {/* Property Address Header */}
+              {selectedAccounts.length > 0 && (
+                <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-6">
+                  <h2 className="text-2xl font-bold text-gray-900 mb-4">Your Properties</h2>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {getPropertyAddresses().map((address, index) => (
+                      <div key={index} className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                        <div className="flex items-center space-x-2">
+                          <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
+                            <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+                            </svg>
+                          </div>
+                          <span className="font-medium text-gray-900">{address}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Bills Found but Not Extracted */}
+              {bills.length > 0 && extractedBills.length === 0 && (
                 <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-6">
                   <div className="flex items-center justify-between mb-6">
-                    <h2 className="text-2xl font-bold text-gray-900">Extracted Bill Data</h2>
-                    <button
-                      onClick={handleOpenBillExtraction}
-                      className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-                    >
-                      Extract Another Bill
-                    </button>
+                    <div>
+                      <h2 className="text-2xl font-bold text-gray-900">Bills Found in Gmail</h2>
+                      <p className="text-sm text-gray-600">
+                        Found {bills.filter(bill => bill.pdfProcessingStatus === 'completed' && bill.imageUrls && bill.imageUrls.length > 0).length} bills with processed images ready for extraction
+                      </p>
+                    </div>
+                    <div className="flex space-x-2">
+                      <button
+                        onClick={handleOpenDebugBillModal}
+                        className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm"
+                      >
+                        Debug: Add by URL
+                      </button>
+                      <button
+                        onClick={handleExtractAllBills}
+                        disabled={isExtracting}
+                        className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
+                      >
+                        {isExtracting ? (
+                          <div className="flex items-center space-x-2">
+                            <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                            <span>Extracting...</span>
+                          </div>
+                        ) : (
+                          'Extract All Bills'
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                  
+                  {/* Show list of found bills */}
+                  <div className="space-y-3">
+                    {bills.filter(bill => bill.pdfProcessingStatus === 'completed' && bill.imageUrls && bill.imageUrls.length > 0).map((bill, index) => (
+                      <div key={index} className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <h3 className="font-medium text-gray-900">{bill.subject}</h3>
+                            <p className="text-sm text-gray-600">{bill.from.name}</p>
+                            <p className="text-sm text-gray-500">{new Date(bill.date).toLocaleDateString()}</p>
+                          </div>
+                          <div className="text-sm text-gray-500">
+                            {bill.imageUrls?.length || 0} image{bill.imageUrls?.length !== 1 ? 's' : ''}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Matched Bills Section */}
+              {extractedBills.filter(bill => bill.addressMatchScore >= 75).length > 0 && (
+                <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-6">
+                  <div className="flex items-center justify-between mb-6">
+                    <h2 className="text-2xl font-bold text-gray-900">Bills Matched to Your Properties</h2>
+                    <div className="flex space-x-2">
+                      <button
+                        onClick={handleOpenDebugBillModal}
+                        className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm"
+                      >
+                        Debug: Add by URL
+                      </button>
+                      <button
+                        onClick={handleOpenBillExtraction}
+                        className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                      >
+                        Extract Another Bill
+                      </button>
+                    </div>
                   </div>
                   <BillDataTable 
-                    bills={extractedBills} 
+                    bills={extractedBills.filter(bill => bill.addressMatchScore >= 75)} 
                     onDelete={handleDeleteBill}
                     onApprove={handleApproveBill}
                     onReject={handleRejectBill}
@@ -497,28 +626,55 @@ export default function App() {
                 </div>
               )}
 
-              {/* Gmail Search Results */}
-              <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-6">
-                <div className="flex items-center justify-between mb-6">
-                  <h2 className="text-2xl font-bold text-gray-900">Gmail Search Results</h2>
-                  {extractedBills.length === 0 && (
+              {/* Unmatched Bills Section */}
+              {extractedBills.filter(bill => bill.addressMatchScore < 75).length > 0 && (
+                <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-6">
+                  <div className="flex items-center justify-between mb-6">
+                    <div>
+                      <h2 className="text-2xl font-bold text-gray-900">Other Bills Found</h2>
+                      <p className="text-sm text-gray-600">Bills that don't match your properties or have low confidence</p>
+                    </div>
+                    <div className="flex space-x-2">
+                      <button
+                        onClick={handleOpenDebugBillModal}
+                        className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm"
+                      >
+                        Debug: Add by URL
+                      </button>
+                    </div>
+                  </div>
+                  <BillDataTable 
+                    bills={extractedBills.filter(bill => bill.addressMatchScore < 75)} 
+                    onDelete={handleDeleteBill}
+                    onApprove={handleApproveBill}
+                    onReject={handleRejectBill}
+                    onDataUpdated={handleBillDataUpdated}
+                  />
+                </div>
+              )}
+
+              {/* No Bills State */}
+              {extractedBills.length === 0 && (
+                <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-6 text-center">
+                  <h2 className="text-2xl font-bold text-gray-900 mb-4">No Bills Extracted Yet</h2>
+                  <p className="text-gray-600 mb-6">Start by extracting bill data from images</p>
+                  <div className="flex flex-col sm:flex-row gap-3 justify-center">
                     <button
                       onClick={handleOpenBillExtraction}
-                      className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                      className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium"
                     >
-                      Extract Bill from Image
+                      Extract Your First Bill
                     </button>
-                  )}
+                    <button
+                      onClick={handleOpenDebugBillModal}
+                      className="px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors font-medium"
+                    >
+                      Debug: Add Bill by URL
+                    </button>
+                  </div>
                 </div>
-                <UtilityBillResults
-                  bills={bills}
-                  isLoading={isSearching}
-                  onSearchAgain={handleSearchAgain}
-                  onBackToSelection={handleBackToSelection}
-                  onExtractAllBills={handleExtractAllBills}
-                  isExtracting={isExtracting}
-                />
-              </div>
+              )}
+
             </div>
           </div>
         </div>
@@ -536,6 +692,13 @@ export default function App() {
         isOpen={showBillExtractionModal}
         onClose={() => setShowBillExtractionModal(false)}
         onBillExtracted={handleBillExtracted}
+        propertyAddresses={getPropertyAddresses()}
+      />
+      <DebugBillModal
+        isOpen={showDebugBillModal}
+        onClose={() => setShowDebugBillModal(false)}
+        onBillExtracted={handleBillExtracted}
+        propertyAddresses={getPropertyAddresses()}
       />
     </>
   );

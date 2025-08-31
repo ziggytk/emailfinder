@@ -13,6 +13,8 @@ export interface BillData {
   billingDays: number;
   totalAmountDue: number;
   confidenceScore: number; // 0-100
+  addressMatchScore: number; // 0-100 - new field for address matching
+  matchedPropertyAddress?: string; // Address of the property this bill is associated with
   status: 'pending' | 'approved' | 'rejected';
   wasEdited: boolean; // Track if user edited the data
   createdAt: string; // ISO date string
@@ -21,6 +23,7 @@ export interface BillData {
 
 export interface BillExtractionRequest {
   imageUrl: string;
+  propertyAddresses?: string[]; // Array of property addresses to match against
 }
 
 export interface BillExtractionResponse {

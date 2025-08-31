@@ -7,12 +7,14 @@ interface BillExtractionModalProps {
   isOpen: boolean;
   onClose: () => void;
   onBillExtracted: (billData: BillData) => void;
+  propertyAddresses?: string[];
 }
 
 export const BillExtractionModal: React.FC<BillExtractionModalProps> = ({
   isOpen,
   onClose,
-  onBillExtracted
+  onBillExtracted,
+  propertyAddresses = []
 }) => {
   const [imageUrl, setImageUrl] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -30,7 +32,11 @@ export const BillExtractionModal: React.FC<BillExtractionModalProps> = ({
     setExtractedData(null);
 
     try {
-      const response = await openaiService.extractBillData({ imageUrl: imageUrl.trim() });
+      console.log('🔍 Modal extraction - Property addresses:', propertyAddresses);
+      const response = await openaiService.extractBillData({ 
+        imageUrl: imageUrl.trim(),
+        propertyAddresses 
+      });
 
       if (response.success && response.data) {
         setExtractedData(response.data);

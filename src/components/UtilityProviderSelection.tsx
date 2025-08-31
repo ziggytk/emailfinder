@@ -24,7 +24,7 @@ export const UtilityProviderSelection: React.FC<UtilityProviderSelectionProps> =
   });
   const [accountNumber, setAccountNumber] = useState('');
   const [customerName, setCustomerName] = useState('');
-  const [selectedProvider, setSelectedProvider] = useState<UtilityProvider | null>(null);
+  const [selectedProviders, setSelectedProviders] = useState<UtilityProvider[]>([]);
   
   const availableProviders = utilityService.getAvailableProviders();
   
@@ -92,48 +92,43 @@ export const UtilityProviderSelection: React.FC<UtilityProviderSelectionProps> =
   const handleProviderSelect = (provider: UtilityProvider) => {
     if (!selectedAddress) return;
     
-    setSelectedProvider(provider);
-    // Don't close the modal - let user click "Add Account" to confirm
+    setSelectedProviders(prev => {
+      const isSelected = prev.some(p => p.id === provider.id);
+      if (isSelected) {
+        // Remove provider if already selected
+        return prev.filter(p => p.id !== provider.id);
+      } else {
+        // Add provider if not selected
+        return [...prev, provider];
+      }
+    });
   };
 
   const handleAddAccount = () => {
-    if (!selectedProvider || !selectedAddress) return;
+    if (selectedProviders.length === 0 || !selectedAddress) return;
     
-    // Find and replace the temporary account
-    const tempAccountIndex = selectedAccounts.findIndex(account => account.provider.id === 'temp');
+    // Find and remove the temporary account
+    const updated = selectedAccounts.filter(account => account.provider.id !== 'temp');
     
-    if (tempAccountIndex !== -1) {
-      // Replace the temporary account with the real one
+    // Add accounts for each selected provider
+    selectedProviders.forEach(provider => {
       const newAccount: UtilityAccount = {
-        id: `${selectedProvider.id}-${Date.now()}`,
-        provider: selectedProvider,
+        id: `${provider.id}-${Date.now()}-${Math.random()}`,
+        provider: provider,
         address: selectedAddress,
         accountNumber: accountNumber || undefined,
         customerName: customerName || undefined
       };
       
-      const updated = [...selectedAccounts];
-      updated[tempAccountIndex] = newAccount;
-      setSelectedAccounts(updated);
-      onAccountsSelected(updated);
-    } else {
-      // Fallback: add as new account if no temp account found
-      const newAccount: UtilityAccount = {
-        id: `${selectedProvider.id}-${Date.now()}`,
-        provider: selectedProvider,
-        address: selectedAddress,
-        accountNumber: accountNumber || undefined,
-        customerName: customerName || undefined
-      };
-      
-      const updated = [...selectedAccounts, newAccount];
-      setSelectedAccounts(updated);
-      onAccountsSelected(updated);
-    }
+      updated.push(newAccount);
+    });
+    
+    setSelectedAccounts(updated);
+    onAccountsSelected(updated);
     
     // Close the modal and reset form
     setShowProviderSelection(false);
-    setSelectedProvider(null);
+    setSelectedProviders([]);
     setSelectedAddress(null);
     setAccountNumber('');
     setCustomerName('');
@@ -141,7 +136,7 @@ export const UtilityProviderSelection: React.FC<UtilityProviderSelectionProps> =
 
   const handleEditAccount = (account: UtilityAccount) => {
     setEditingAccountId(account.id);
-    setSelectedProvider(account.provider);
+    setSelectedProviders([account.provider]);
     setAddressForm(account.address);
     setAccountNumber(account.accountNumber || '');
     setCustomerName(account.customerName || '');
@@ -149,13 +144,13 @@ export const UtilityProviderSelection: React.FC<UtilityProviderSelectionProps> =
   };
 
   const handleUpdateAccount = () => {
-    if (!selectedProvider || !editingAccountId) return;
+    if (selectedProviders.length === 0 || !editingAccountId) return;
     
     const updated = selectedAccounts.map(account => 
       account.id === editingAccountId 
         ? {
             ...account,
-            provider: selectedProvider,
+            provider: selectedProviders[0], // For editing, we only support single provider
             address: { ...addressForm },
             accountNumber: accountNumber || undefined,
             customerName: customerName || undefined
@@ -169,7 +164,7 @@ export const UtilityProviderSelection: React.FC<UtilityProviderSelectionProps> =
     // Reset form
     setShowAddressForm(false);
     setEditingAccountId(null);
-    setSelectedProvider(null);
+    setSelectedProviders([]);
     setAddressForm({
       street: '',
       city: '',
@@ -218,13 +213,13 @@ export const UtilityProviderSelection: React.FC<UtilityProviderSelectionProps> =
   };
 
   return (
-    <div className="max-w-6xl mx-auto p-6">
+    <div className="w-4/5 mx-auto px-10">
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-gray-900 mb-2">
-          Manage Your Utility Accounts
+          Add Your Properties
         </h1>
         <p className="text-gray-600">
-          Add your utility accounts by address and select the providers for each location. We'll search your Gmail for bills from these providers over the past 6 months.
+          We'll search for the most recent utility bills from the providers you select.
         </p>
       </div>
 
@@ -507,10 +502,10 @@ export const UtilityProviderSelection: React.FC<UtilityProviderSelectionProps> =
             <div className="flex items-center justify-between mb-6">
               <div>
                 <h3 className="text-lg font-semibold text-gray-900">
-                  Select Utility Provider
+                  Select Utility Providers
                 </h3>
                 <p className="text-sm text-gray-600 mt-1">
-                  Choose providers for: {selectedAddress.street}, {selectedAddress.city}, {selectedAddress.state} {selectedAddress.zipCode}
+                  Choose one or more providers for: {selectedAddress.street}, {selectedAddress.city}, {selectedAddress.state} {selectedAddress.zipCode}
                 </p>
               </div>
               <button
@@ -555,7 +550,7 @@ export const UtilityProviderSelection: React.FC<UtilityProviderSelectionProps> =
             {/* Provider Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
               {availableProviders.map(provider => {
-                const isSelected = selectedProvider?.id === provider.id;
+                const isSelected = selectedProviders.some(p => p.id === provider.id);
                 
                 return (
                   <div
@@ -616,10 +611,10 @@ export const UtilityProviderSelection: React.FC<UtilityProviderSelectionProps> =
               </button>
               <button
                 onClick={handleAddAccount}
-                disabled={!selectedProvider}
+                disabled={selectedProviders.length === 0}
                 className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
               >
-                Add Account
+                Add {selectedProviders.length > 0 ? `${selectedProviders.length} Account${selectedProviders.length > 1 ? 's' : ''}` : 'Account'}
               </button>
             </div>
           </div>
@@ -632,16 +627,16 @@ export const UtilityProviderSelection: React.FC<UtilityProviderSelectionProps> =
           <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
             <Home className="w-8 h-8 text-gray-400" />
           </div>
-          <h3 className="text-lg font-medium text-gray-900 mb-2">No utility accounts yet</h3>
+          <h3 className="text-lg font-medium text-gray-900 mb-2">No properties yet</h3>
           <p className="text-gray-600 mb-6">
-            Start by adding your first address and selecting utility providers for that location.
+            Add your first property to get started.
           </p>
           <button
             onClick={handleAddAddress}
             className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
           >
             <Plus className="w-5 h-5" />
-            Add Your First Address
+            + Add Your First Property
           </button>
         </div>
       )}
