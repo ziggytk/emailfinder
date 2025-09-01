@@ -17,6 +17,8 @@ export interface BillData {
   matchedPropertyAddress?: string; // Address of the property this bill is associated with
   status: 'pending' | 'approved' | 'rejected';
   wasEdited: boolean; // Track if user edited the data
+  rejectionComment?: string; // Comment when bill is rejected
+  associatedPropertyId?: string; // ID of the property this bill is associated with
   createdAt: string; // ISO date string
   updatedAt: string; // ISO date string
 }

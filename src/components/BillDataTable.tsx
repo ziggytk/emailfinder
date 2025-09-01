@@ -6,17 +6,21 @@ import { billExtractionService } from '../services/billExtractionService';
 interface BillDataTableProps {
   bills: BillData[];
   onDelete?: (id: string) => void;
-  onApprove?: (id: string) => void;
-  onReject?: (id: string) => void;
+  onApprove?: (id: string, propertyId?: string) => void;
+  onReject?: (id: string, comment?: string) => void;
+  onUnreject?: (id: string) => void;
+  onPayBill?: (id: string) => void;
   onDataUpdated?: (updatedBill: BillData) => void;
+  propertyAddresses?: string[];
 }
 
-export const BillDataTable: React.FC<BillDataTableProps> = ({ bills, onDelete, onApprove, onReject, onDataUpdated }) => {
+export const BillDataTable: React.FC<BillDataTableProps> = ({ bills, onDelete, onApprove, onReject, onUnreject, onPayBill, onDataUpdated, propertyAddresses = [] }) => {
   const [sortField, setSortField] = useState<keyof BillData>('createdAt');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   const [filterOwner, setFilterOwner] = useState('');
   const [filterAddress, setFilterAddress] = useState('');
   const [filterAccount, setFilterAccount] = useState('');
+  const [filterOfficialAddress, setFilterOfficialAddress] = useState('');
   const [selectedBill, setSelectedBill] = useState<BillData | null>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
@@ -26,7 +30,13 @@ export const BillDataTable: React.FC<BillDataTableProps> = ({ bills, onDelete, o
       const ownerMatch = bill.ownerName.toLowerCase().includes(filterOwner.toLowerCase());
       const addressMatch = bill.homeAddress.toLowerCase().includes(filterAddress.toLowerCase());
       const accountMatch = bill.accountNumber.toLowerCase().includes(filterAccount.toLowerCase());
-      return ownerMatch && addressMatch && accountMatch;
+      
+      // Filter by official address
+      const officialAddressMatch = !filterOfficialAddress || 
+        (bill.associatedPropertyId && 
+         bill.associatedPropertyId.toLowerCase().includes(filterOfficialAddress.toLowerCase()));
+      
+      return ownerMatch && addressMatch && accountMatch && officialAddressMatch;
     });
 
     filtered.sort((a, b) => {
@@ -119,7 +129,7 @@ export const BillDataTable: React.FC<BillDataTableProps> = ({ bills, onDelete, o
   return (
     <div className="space-y-4">
       {/* Filters */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">
             Filter by Owner
@@ -153,6 +163,18 @@ export const BillDataTable: React.FC<BillDataTableProps> = ({ bills, onDelete, o
             value={filterAccount}
             onChange={(e) => setFilterAccount(e.target.value)}
             placeholder="Search by account number..."
+            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Filter by Official Address
+          </label>
+          <input
+            type="text"
+            value={filterOfficialAddress}
+            onChange={(e) => setFilterOfficialAddress(e.target.value)}
+            placeholder="Search by official address..."
             className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
@@ -210,6 +232,9 @@ export const BillDataTable: React.FC<BillDataTableProps> = ({ bills, onDelete, o
                 {sortField === 'addressMatchScore' && (
                   <span className="ml-1">{sortDirection === 'asc' ? '↑' : '↓'}</span>
                 )}
+              </th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Official Address
               </th>
               <th 
                 className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
@@ -270,6 +295,7 @@ export const BillDataTable: React.FC<BillDataTableProps> = ({ bills, onDelete, o
                 <React.Fragment key={bill.id}>
                   <tr 
                     className={`hover:bg-gray-50 cursor-pointer ${
+                      bill.status === 'rejected' ? 'bg-red-50' :
                       bill.confidenceScore < 95 ? 'bg-yellow-50' : ''
                     } ${
                       duplicates.length > 0 ? 'bg-orange-50' : ''
@@ -294,9 +320,19 @@ export const BillDataTable: React.FC<BillDataTableProps> = ({ bills, onDelete, o
                 <td className="px-4 py-3 text-sm text-gray-900">
                   <div className="flex items-center space-x-2">
                     <span>{bill.ownerName}</span>
+                    {bill.status === 'approved' && (
+                      <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800">
+                        Approved
+                      </span>
+                    )}
                     {bill.wasEdited && (
                       <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800">
                         Edited
+                      </span>
+                    )}
+                    {bill.status === 'rejected' && (
+                      <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-red-100 text-red-800">
+                        Rejected
                       </span>
                     )}
                   </div>
@@ -328,6 +364,39 @@ export const BillDataTable: React.FC<BillDataTableProps> = ({ bills, onDelete, o
                     <div className="text-xs text-gray-500 mt-1 truncate max-w-xs" title={bill.matchedPropertyAddress}>
                       Belongs to: {bill.matchedPropertyAddress}
                     </div>
+                  )}
+                </td>
+                <td className="px-4 py-3 text-sm text-gray-900">
+                  {bill.associatedPropertyId ? (
+                    <div className="max-w-xs truncate" title={bill.associatedPropertyId}>
+                      {bill.associatedPropertyId.startsWith('new-') ? (
+                        <div>
+                          <span className="text-green-600 font-medium">
+                            {bill.associatedPropertyId.substring(4)}
+                          </span>
+                          <div className="text-xs text-green-600 mt-1">
+                            ✨ New Property
+                          </div>
+                        </div>
+                      ) : bill.associatedPropertyId.startsWith('property-') ? (
+                        <div>
+                          <span className="text-blue-600 font-medium">
+                            Property #{bill.associatedPropertyId.substring(9)}
+                          </span>
+                          <div className="text-xs text-blue-600 mt-1">
+                            📍 Existing Property
+                          </div>
+                        </div>
+                      ) : (
+                        <span className="text-purple-600 font-medium">
+                          {bill.associatedPropertyId}
+                        </span>
+                      )}
+                    </div>
+                  ) : bill.status === 'approved' ? (
+                    <span className="text-orange-400 italic">Pending assignment</span>
+                  ) : (
+                    <span className="text-gray-400 italic">Not assigned</span>
                   )}
                 </td>
                 <td className="px-4 py-3 text-sm text-gray-900">
@@ -378,31 +447,60 @@ export const BillDataTable: React.FC<BillDataTableProps> = ({ bills, onDelete, o
                   {/* Expanded row with approve/reject buttons */}
                   {isExpanded && (
                     <tr className="bg-gray-50">
-                      <td colSpan={12} className="px-4 py-3">
+                      <td colSpan={13} className="px-4 py-3">
                         <div className="flex items-center justify-between">
                           <div className="flex items-center space-x-4">
                             <span className="text-sm text-gray-600">Actions:</span>
-                            {onApprove && (
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  onApprove(bill.id);
-                                }}
-                                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm font-medium"
-                              >
-                                Approve
-                              </button>
-                            )}
-                            {onReject && (
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  onReject(bill.id);
-                                }}
-                                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm font-medium"
-                              >
-                                Reject
-                              </button>
+                            {bill.status === 'rejected' ? (
+                              <>
+                                {onUnreject && (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      onUnreject(bill.id);
+                                    }}
+                                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
+                                  >
+                                    Unreject
+                                  </button>
+                                )}
+                                {onApprove && (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      onApprove(bill.id);
+                                    }}
+                                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm font-medium"
+                                  >
+                                    Approve
+                                  </button>
+                                )}
+                              </>
+                            ) : (
+                              <>
+                                {onApprove && (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      onApprove(bill.id);
+                                    }}
+                                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm font-medium"
+                                  >
+                                    Approve
+                                  </button>
+                                )}
+                                {onReject && (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      onReject(bill.id);
+                                    }}
+                                    className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm font-medium"
+                                  >
+                                    Reject
+                                  </button>
+                                )}
+                              </>
                             )}
                             {onDelete && (
                               <button
@@ -413,6 +511,17 @@ export const BillDataTable: React.FC<BillDataTableProps> = ({ bills, onDelete, o
                                 className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors text-sm font-medium"
                               >
                                 Delete
+                              </button>
+                            )}
+                            {onPayBill && bill.status === 'approved' && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onPayBill(bill.id);
+                                }}
+                                className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm font-medium"
+                              >
+                                Pay Bill
                               </button>
                             )}
                           </div>
@@ -445,6 +554,7 @@ export const BillDataTable: React.FC<BillDataTableProps> = ({ bills, onDelete, o
         onApprove={onApprove}
         onReject={onReject}
         onDataUpdated={onDataUpdated}
+        propertyAddresses={propertyAddresses}
       />
     </div>
   );

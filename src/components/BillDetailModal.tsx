@@ -6,9 +6,10 @@ interface BillDetailModalProps {
   isOpen: boolean;
   onClose: () => void;
   bill: BillData | null;
-  onApprove?: (id: string) => void;
-  onReject?: (id: string) => void;
+  onApprove?: (id: string, propertyId?: string) => void;
+  onReject?: (id: string, comment?: string) => void;
   onDataUpdated?: (updatedBill: BillData) => void;
+  propertyAddresses?: string[];
 }
 
 export const BillDetailModal: React.FC<BillDetailModalProps> = ({
@@ -17,13 +18,25 @@ export const BillDetailModal: React.FC<BillDetailModalProps> = ({
   bill,
   onApprove,
   onReject,
-  onDataUpdated
+  onDataUpdated,
+  propertyAddresses = []
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [editedData, setEditedData] = useState<BillData | null>(null);
   const [hasChanges, setHasChanges] = useState(false);
   const [imageUrl, setImageUrl] = useState<string>('');
   const [imageLoading, setImageLoading] = useState(false);
+  const [showApproveModal, setShowApproveModal] = useState(false);
+  const [showRejectModal, setShowRejectModal] = useState(false);
+  const [selectedPropertyId, setSelectedPropertyId] = useState<string>('');
+  const [rejectionComment, setRejectionComment] = useState<string>('');
+  const [newPropertyForm, setNewPropertyForm] = useState({
+    street: '',
+    city: '',
+    state: '',
+    zipCode: '',
+    country: 'USA'
+  });
 
   useEffect(() => {
     if (bill) {
@@ -68,8 +81,51 @@ export const BillDetailModal: React.FC<BillDetailModalProps> = ({
   };
 
   const handleApprove = () => {
+    setShowApproveModal(true);
+    // Reset the new property form
+    setNewPropertyForm({
+      street: '',
+      city: '',
+      state: '',
+      zipCode: '',
+      country: 'USA'
+    });
+    setSelectedPropertyId('');
+  };
+
+  const handleConfirmApprove = () => {
     if (onApprove) {
-      onApprove(bill.id);
+      let propertyId = selectedPropertyId;
+      
+      // If creating a new property, format the address properly
+      if (selectedPropertyId === 'new') {
+        const formattedAddress = `${newPropertyForm.street}, ${newPropertyForm.city}, ${newPropertyForm.state} ${newPropertyForm.zipCode}`;
+        propertyId = `new-${formattedAddress}`;
+      }
+      
+      onApprove(bill.id, propertyId);
+      
+      // Reset the form
+      setNewPropertyForm({
+        street: '',
+        city: '',
+        state: '',
+        zipCode: '',
+        country: 'USA'
+      });
+      setSelectedPropertyId('');
+      
+      onClose();
+    }
+  };
+
+  const handleReject = () => {
+    setShowRejectModal(true);
+  };
+
+  const handleConfirmReject = () => {
+    if (onReject) {
+      onReject(bill.id, rejectionComment);
       onClose();
     }
   };
@@ -120,12 +176,7 @@ export const BillDetailModal: React.FC<BillDetailModalProps> = ({
     }
   };
 
-  const handleReject = () => {
-    if (onReject) {
-      onReject(bill.id);
-      onClose();
-    }
-  };
+
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
@@ -453,6 +504,163 @@ export const BillDetailModal: React.FC<BillDetailModalProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Approve Modal */}
+      {showApproveModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg w-full max-w-md">
+            <div className="border-b border-gray-200 px-6 py-4">
+              <h2 className="text-xl font-semibold text-gray-900">Approve Bill</h2>
+            </div>
+            <div className="p-6">
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Associate with Property
+                </label>
+                <select
+                  value={selectedPropertyId}
+                  onChange={(e) => setSelectedPropertyId(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">Select a property...</option>
+                  {propertyAddresses.map((address, index) => (
+                    <option key={index} value={`property-${index}`}>
+                      {address}
+                    </option>
+                  ))}
+                  <option value="new">Add new property</option>
+                </select>
+              </div>
+
+              {selectedPropertyId === 'new' && (
+                <div className="mb-4 space-y-4">
+                  <h4 className="font-medium text-gray-900">New Property Details</h4>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Street Address
+                    </label>
+                    <input
+                      type="text"
+                      value={newPropertyForm.street}
+                      onChange={(e) => setNewPropertyForm({...newPropertyForm, street: e.target.value})}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="123 Main St"
+                    />
+                  </div>
+                  
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        City
+                      </label>
+                      <input
+                        type="text"
+                        value={newPropertyForm.city}
+                        onChange={(e) => setNewPropertyForm({...newPropertyForm, city: e.target.value})}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="New York"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        State
+                      </label>
+                      <input
+                        type="text"
+                        value={newPropertyForm.state}
+                        onChange={(e) => setNewPropertyForm({...newPropertyForm, state: e.target.value})}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="NY"
+                      />
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      ZIP Code
+                    </label>
+                    <input
+                      type="text"
+                      value={newPropertyForm.zipCode}
+                      onChange={(e) => setNewPropertyForm({...newPropertyForm, zipCode: e.target.value})}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="10001"
+                    />
+                  </div>
+                </div>
+              )}
+
+              <div className="flex justify-end space-x-3">
+                <button
+                  onClick={() => {
+                    setShowApproveModal(false);
+                    // Reset the form
+                    setNewPropertyForm({
+                      street: '',
+                      city: '',
+                      state: '',
+                      zipCode: '',
+                      country: 'USA'
+                    });
+                    setSelectedPropertyId('');
+                  }}
+                  className="px-4 py-2 text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleConfirmApprove}
+                  disabled={selectedPropertyId === 'new' && (!newPropertyForm.street.trim() || !newPropertyForm.city.trim() || !newPropertyForm.state.trim() || !newPropertyForm.zipCode.trim())}
+                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  Approve
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Reject Modal */}
+      {showRejectModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg w-full max-w-md">
+            <div className="border-b border-gray-200 px-6 py-4">
+              <h2 className="text-xl font-semibold text-gray-900">Reject Bill</h2>
+            </div>
+            <div className="p-6">
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Reason for Rejection (Optional)
+                </label>
+                <textarea
+                  value={rejectionComment}
+                  onChange={(e) => setRejectionComment(e.target.value)}
+                  placeholder="Why are you rejecting this bill?"
+                  rows={3}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <div className="flex justify-end space-x-3">
+                <button
+                  onClick={() => setShowRejectModal(false)}
+                  className="px-4 py-2 text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleConfirmReject}
+                  className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                >
+                  Reject
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

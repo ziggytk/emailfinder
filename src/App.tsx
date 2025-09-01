@@ -3,7 +3,7 @@ import { LoginScreen } from './components/LoginScreen';
 import { UtilityProviderSelection } from './components/UtilityProviderSelection';
 import { UtilityBillResults } from './components/UtilityBillResults';
 import { BillExtractionModal } from './components/BillExtractionModal';
-import { DebugBillModal } from './components/DebugBillModal';
+
 import { BillDataTable } from './components/BillDataTable';
 import { gmailApiService } from './services/gmailApi';
 import { utilityService } from './services/utilityService';
@@ -27,7 +27,7 @@ export default function App() {
   const [isExtracting, setIsExtracting] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [showBillExtractionModal, setShowBillExtractionModal] = useState(false);
-  const [showDebugBillModal, setShowDebugBillModal] = useState(false);
+
 
 
   const loadUserProfile = useCallback(async () => {
@@ -85,6 +85,16 @@ export default function App() {
 
     loadBillExtractions();
   }, [user]);
+
+  // Debug selectedAccounts changes
+  useEffect(() => {
+    console.log('🔄 selectedAccounts state changed:', selectedAccounts.length, 'accounts');
+    console.log('🔄 selectedAccounts details:', selectedAccounts.map(acc => ({
+      id: acc.id,
+      address: acc.address,
+      provider: acc.provider.name
+    })));
+  }, [selectedAccounts]);
 
   const handleLogin = async () => {
     try {
@@ -170,6 +180,12 @@ export default function App() {
     });
     const uniqueAddresses = [...new Set(addresses)]; // Remove duplicates
     console.log('🏘️ Property addresses for matching:', uniqueAddresses);
+    console.log('🏘️ Total selected accounts:', selectedAccounts.length);
+    console.log('🏘️ Selected accounts details:', selectedAccounts.map(acc => ({
+      id: acc.id,
+      address: acc.address,
+      provider: acc.provider.name
+    })));
     return uniqueAddresses;
   };
 
@@ -192,16 +208,72 @@ export default function App() {
     setExtractedBills(prev => prev.filter(bill => bill.id !== billId));
   };
 
-  const handleApproveBill = async (billId: string) => {
+  const handleApproveBill = async (billId: string, propertyId?: string) => {
     try {
-      const response = await billExtractionService.approveBillExtraction(billId);
+      const response = await billExtractionService.approveBillExtraction(billId, propertyId);
       if (response.success) {
         setExtractedBills(prev => prev.map(bill => 
           bill.id === billId ? { 
             ...bill, 
-            status: 'approved' as const
+            status: 'approved' as const,
+            associatedPropertyId: propertyId
           } : bill
         ));
+
+        // If this is a new property, add it to the selected accounts
+        if (propertyId && propertyId.startsWith('new-')) {
+          const newPropertyAddress = propertyId.substring(4); // Remove 'new-' prefix
+          console.log('🏠 Adding new property:', newPropertyAddress);
+          console.log('🏠 Property ID received:', propertyId);
+          
+          // Parse the address string back into components
+          // The format is: "street, city, state zipCode"
+          const addressParts = newPropertyAddress.split(', ');
+          console.log('🏠 Address parts:', addressParts);
+          if (addressParts.length >= 3) {
+            const street = addressParts[0];
+            const city = addressParts[1];
+            const stateZipPart = addressParts[2];
+            
+            // Split the state and zip code (e.g., "NY 10001")
+            const stateZipParts = stateZipPart.split(' ');
+            const state = stateZipParts[0];
+            const zipCode = stateZipParts.slice(1).join(' '); // Handle multi-word zip codes
+            
+            // Create a new utility account for this property
+            const newAccount: UtilityAccount = {
+              id: `new-property-${Date.now()}`,
+              provider: {
+                id: 'pending',
+                name: 'Property Added via Bill Approval',
+                domains: [],
+                description: 'Property added when approving a bill'
+              },
+              address: {
+                street,
+                city,
+                state,
+                zipCode,
+                country: 'USA'
+              }
+            };
+
+            // Add to selected accounts
+            const updatedAccounts = [...selectedAccounts, newAccount];
+            setSelectedAccounts(updatedAccounts);
+            
+            // Update utility service
+            utilityService.setSelectedAccounts(updatedAccounts);
+            
+            console.log('✅ New property added to selected accounts:', newAccount);
+            console.log('✅ Updated accounts array length:', updatedAccounts.length);
+            console.log('✅ Updated accounts:', updatedAccounts.map(acc => ({
+              id: acc.id,
+              address: acc.address,
+              provider: acc.provider.name
+            })));
+          }
+        }
       } else {
         console.error('Failed to approve bill:', response.error);
       }
@@ -210,16 +282,80 @@ export default function App() {
     }
   };
 
-  const handleRejectBill = async (billId: string) => {
+  const handleRejectBill = async (billId: string, comment?: string) => {
     try {
-      const response = await billExtractionService.rejectBillExtraction(billId);
+      const response = await billExtractionService.rejectBillExtraction(billId, comment);
       if (response.success) {
-        setExtractedBills(prev => prev.filter(bill => bill.id !== billId));
+        setExtractedBills(prev => prev.map(bill => 
+          bill.id === billId ? { 
+            ...bill, 
+            status: 'rejected' as const,
+            rejectionComment: comment
+          } : bill
+        ));
       } else {
         console.error('Failed to reject bill:', response.error);
       }
     } catch (error) {
       console.error('Error rejecting bill:', error);
+    }
+  };
+
+  const handleUnrejectBill = async (billId: string) => {
+    try {
+      const response = await billExtractionService.updateBillStatus(billId, 'pending');
+      if (response.success) {
+        setExtractedBills(prev => prev.map(bill => 
+          bill.id === billId ? { 
+            ...bill, 
+            status: 'pending' as const,
+            rejectionComment: undefined
+          } : bill
+        ));
+      } else {
+        console.error('Failed to unreject bill:', response.error);
+      }
+    } catch (error) {
+      console.error('Error unrejecting bill:', error);
+    }
+  };
+
+  const handlePayBill = async (billId: string) => {
+    try {
+      // Find the bill to get its details
+      const bill = extractedBills.find(b => b.id === billId);
+      if (!bill) {
+        console.error('Bill not found');
+        return;
+      }
+
+      // Check if bill is approved
+      if (bill.status !== 'approved') {
+        alert('Only approved bills can be paid.');
+        return;
+      }
+
+      // Here you would integrate with your payment system
+      // For now, we'll show a confirmation dialog
+      const confirmed = window.confirm(
+        `Pay bill for ${bill.ownerName}?\n\n` +
+        `Amount: ${new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(bill.totalAmountDue)}\n` +
+        `Due Date: ${new Date(bill.billDueDate).toLocaleDateString()}\n` +
+        `Account: ${bill.accountNumber}\n\n` +
+        `This will redirect you to the payment portal.`
+      );
+
+      if (confirmed) {
+        // TODO: Integrate with payment system
+        console.log('Processing payment for bill:', billId);
+        alert('Payment processing would be integrated here. Redirecting to payment portal...');
+        
+        // You could redirect to a payment URL here
+        // window.open('https://your-payment-portal.com/pay?billId=' + billId, '_blank');
+      }
+    } catch (error) {
+      console.error('Error processing payment:', error);
+      alert('Failed to process payment. Please try again.');
     }
   };
 
@@ -233,9 +369,7 @@ export default function App() {
     setShowBillExtractionModal(true);
   };
 
-  const handleOpenDebugBillModal = () => {
-    setShowDebugBillModal(true);
-  };
+
 
   const handleExtractAllBills = async () => {
     setIsExtracting(true);
@@ -554,12 +688,6 @@ export default function App() {
                     </div>
                     <div className="flex space-x-2">
                       <button
-                        onClick={handleOpenDebugBillModal}
-                        className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm"
-                      >
-                        Debug: Add by URL
-                      </button>
-                      <button
                         onClick={handleExtractAllBills}
                         disabled={isExtracting}
                         className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
@@ -597,64 +725,96 @@ export default function App() {
               )}
 
               {/* Matched Bills Section */}
-              {extractedBills.filter(bill => bill.addressMatchScore >= 75).length > 0 && (
+              {extractedBills.filter(bill => bill.addressMatchScore >= 75 || (bill.status === 'approved' && bill.associatedPropertyId)).length > 0 && (
                 <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-6">
                   <div className="flex items-center justify-between mb-6">
                     <h2 className="text-2xl font-bold text-gray-900">Bills Matched to Your Properties</h2>
                     <div className="flex space-x-2">
-                      <button
-                        onClick={handleOpenDebugBillModal}
-                        className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm"
-                      >
-                        Debug: Add by URL
-                      </button>
                       <button
                         onClick={handleOpenBillExtraction}
                         className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
                       >
                         Extract Another Bill
                       </button>
+                      <button
+                        onClick={() => {
+                          const approvedBills = extractedBills.filter(bill => bill.status === 'approved');
+                          if (approvedBills.length === 0) {
+                            alert('No approved bills available for payment.');
+                            return;
+                          }
+                          // For now, just show the first approved bill
+                          // In a real implementation, you might want to show a selection modal
+                          handlePayBill(approvedBills[0].id);
+                        }}
+                        className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+                      >
+                        Pay Bill
+                      </button>
                     </div>
                   </div>
                   <BillDataTable 
-                    bills={extractedBills.filter(bill => bill.addressMatchScore >= 75)} 
+                    bills={extractedBills.filter(bill => bill.addressMatchScore >= 75 || (bill.status === 'approved' && bill.associatedPropertyId))} 
                     onDelete={handleDeleteBill}
                     onApprove={handleApproveBill}
                     onReject={handleRejectBill}
+                    onUnreject={handleUnrejectBill}
+                    onPayBill={handlePayBill}
                     onDataUpdated={handleBillDataUpdated}
+                    propertyAddresses={getPropertyAddresses()}
                   />
                 </div>
               )}
 
               {/* Unmatched Bills Section */}
-              {extractedBills.filter(bill => bill.addressMatchScore < 75).length > 0 && (
+              {extractedBills.filter(bill => bill.addressMatchScore < 75 && !(bill.status === 'approved' && bill.associatedPropertyId) && bill.status !== 'rejected').length > 0 && (
                 <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-6">
                   <div className="flex items-center justify-between mb-6">
                     <div>
                       <h2 className="text-2xl font-bold text-gray-900">Other Bills Found</h2>
                       <p className="text-sm text-gray-600">Bills that don't match your properties or have low confidence</p>
                     </div>
-                    <div className="flex space-x-2">
-                      <button
-                        onClick={handleOpenDebugBillModal}
-                        className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm"
-                      >
-                        Debug: Add by URL
-                      </button>
-                    </div>
+
                   </div>
                   <BillDataTable 
-                    bills={extractedBills.filter(bill => bill.addressMatchScore < 75)} 
+                    bills={extractedBills.filter(bill => bill.addressMatchScore < 75 && !(bill.status === 'approved' && bill.associatedPropertyId) && bill.status !== 'rejected')} 
                     onDelete={handleDeleteBill}
                     onApprove={handleApproveBill}
                     onReject={handleRejectBill}
+                    onUnreject={handleUnrejectBill}
+                    onPayBill={handlePayBill}
                     onDataUpdated={handleBillDataUpdated}
+                    propertyAddresses={getPropertyAddresses()}
+                  />
+                </div>
+              )}
+
+              {/* Rejected Bills Section */}
+              {extractedBills.filter(bill => bill.status === 'rejected').length > 0 && (
+                <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-6">
+                  <div className="flex items-center justify-between mb-6">
+                    <div>
+                      <h2 className="text-2xl font-bold text-gray-900">Rejected Bills</h2>
+                      <p className="text-sm text-gray-600">Bills you've rejected - you can still approve them if needed</p>
+                    </div>
+                  </div>
+                  <BillDataTable 
+                    bills={extractedBills.filter(bill => bill.status === 'rejected')} 
+                    onDelete={handleDeleteBill}
+                    onApprove={handleApproveBill}
+                    onReject={handleRejectBill}
+                    onUnreject={handleUnrejectBill}
+                    onPayBill={handlePayBill}
+                    onDataUpdated={handleBillDataUpdated}
+                    propertyAddresses={getPropertyAddresses()}
                   />
                 </div>
               )}
 
               {/* No Bills State */}
-              {extractedBills.length === 0 && (
+              {extractedBills.filter(bill => bill.addressMatchScore >= 75 || (bill.status === 'approved' && bill.associatedPropertyId)).length === 0 && 
+               extractedBills.filter(bill => bill.addressMatchScore < 75 && !(bill.status === 'approved' && bill.associatedPropertyId) && bill.status !== 'rejected').length === 0 &&
+               extractedBills.filter(bill => bill.status === 'rejected').length === 0 && (
                 <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-6 text-center">
                   <h2 className="text-2xl font-bold text-gray-900 mb-4">No Bills Extracted Yet</h2>
                   <p className="text-gray-600 mb-6">Start by extracting bill data from images</p>
@@ -664,12 +824,6 @@ export default function App() {
                       className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium"
                     >
                       Extract Your First Bill
-                    </button>
-                    <button
-                      onClick={handleOpenDebugBillModal}
-                      className="px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors font-medium"
-                    >
-                      Debug: Add Bill by URL
                     </button>
                   </div>
                 </div>
@@ -694,12 +848,7 @@ export default function App() {
         onBillExtracted={handleBillExtracted}
         propertyAddresses={getPropertyAddresses()}
       />
-      <DebugBillModal
-        isOpen={showDebugBillModal}
-        onClose={() => setShowDebugBillModal(false)}
-        onBillExtracted={handleBillExtracted}
-        propertyAddresses={getPropertyAddresses()}
-      />
+
     </>
   );
 }

@@ -138,6 +138,8 @@ export class BillExtractionService {
         matchedPropertyAddress: row.matched_property_address,
         status: row.status,
         wasEdited: row.was_edited,
+        rejectionComment: row.rejection_comment,
+        associatedPropertyId: row.associated_property_id,
         createdAt: row.created_at,
         updatedAt: row.updated_at
       }));
@@ -185,7 +187,7 @@ export class BillExtractionService {
   /**
    * Approve a bill extraction
    */
-  async approveBillExtraction(billId: string, updatedData?: BillData): Promise<{ success: boolean; error?: string }> {
+  async approveBillExtraction(billId: string, propertyId?: string): Promise<{ success: boolean; error?: string }> {
     try {
       const { data: { user }, error: authError } = await supabase.auth.getUser();
       if (authError || !user) {
@@ -194,24 +196,9 @@ export class BillExtractionService {
 
       const updateData: any = { 
         status: 'approved',
+        associated_property_id: propertyId,
         updated_at: new Date().toISOString()
       };
-
-      // If updated data is provided, update all fields and mark as edited
-      if (updatedData) {
-        updateData.owner_name = updatedData.ownerName;
-        updateData.home_address = updatedData.homeAddress;
-        updateData.account_number = updatedData.accountNumber;
-        updateData.bill_due_date = updatedData.billDueDate;
-        updateData.is_auto_pay_enabled = updatedData.isAutoPayEnabled;
-        updateData.average_daily_electric_usage = updatedData.averageDailyElectricUsage;
-        updateData.next_billing_date = updatedData.nextBillingDate;
-        updateData.billing_period_start = updatedData.billingPeriodStart;
-        updateData.billing_period_end = updatedData.billingPeriodEnd;
-        updateData.billing_days = updatedData.billingDays;
-        updateData.total_amount_due = updatedData.totalAmountDue;
-        updateData.was_edited = true;
-      }
 
       const { error } = await supabase
         .from('bill_extractions')
@@ -236,16 +223,25 @@ export class BillExtractionService {
   /**
    * Reject a bill extraction
    */
-  async rejectBillExtraction(billId: string): Promise<{ success: boolean; error?: string }> {
+  async rejectBillExtraction(billId: string, comment?: string): Promise<{ success: boolean; error?: string }> {
     try {
       const { data: { user }, error: authError } = await supabase.auth.getUser();
       if (authError || !user) {
         throw new Error('User not authenticated');
       }
 
+      const updateData: any = { 
+        status: 'rejected',
+        updated_at: new Date().toISOString()
+      };
+
+      if (comment) {
+        updateData.rejection_comment = comment;
+      }
+
       const { error } = await supabase
         .from('bill_extractions')
-        .update({ status: 'rejected' })
+        .update(updateData)
         .eq('id', billId)
         .eq('user_id', user.id);
 
@@ -256,6 +252,46 @@ export class BillExtractionService {
       return { success: true };
     } catch (error) {
       console.error('Error rejecting bill extraction:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error occurred'
+      };
+    }
+  }
+
+  /**
+   * Update bill status
+   */
+  async updateBillStatus(billId: string, status: 'pending' | 'approved' | 'rejected'): Promise<{ success: boolean; error?: string }> {
+    try {
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      if (authError || !user) {
+        throw new Error('User not authenticated');
+      }
+
+      const updateData: any = { 
+        status: status,
+        updated_at: new Date().toISOString()
+      };
+
+      // Clear rejection comment if moving away from rejected status
+      if (status !== 'rejected') {
+        updateData.rejection_comment = null;
+      }
+
+      const { error } = await supabase
+        .from('bill_extractions')
+        .update(updateData)
+        .eq('id', billId)
+        .eq('user_id', user.id);
+
+      if (error) {
+        throw error;
+      }
+
+      return { success: true };
+    } catch (error) {
+      console.error('Error updating bill status:', error);
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Unknown error occurred'

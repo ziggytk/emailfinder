@@ -76,6 +76,16 @@ class GmailApiService {
   // Sign in with Google using Supabase OAuth
   async signInWithGoogle(): Promise<void> {
     try {
+      // Check if we're in a secure context
+      if (!window.isSecureContext) {
+        throw new Error('OAuth requires a secure context (HTTPS or localhost)');
+      }
+
+      // Check if permissions API is available
+      if (!navigator.permissions) {
+        console.warn('Permissions API not available, proceeding anyway...');
+      }
+
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
@@ -89,6 +99,7 @@ class GmailApiService {
       });
 
       if (error) {
+        console.error('Supabase OAuth error:', error);
         throw error;
       }
 
