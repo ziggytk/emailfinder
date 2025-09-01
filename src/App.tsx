@@ -382,18 +382,31 @@ export default function App() {
 
   const handleLaunchAgent = async (billId: string) => {
     try {
+      console.log('🚀 Launching AI Agent for bill:', billId);
+      
       // Find the bill to get its details
       const bill = extractedBills.find(b => b.id === billId);
       if (!bill) {
-        console.error('Bill not found');
+        console.error('❌ Bill not found for agent launch');
         return;
       }
+
+      console.log('📋 Bill details for agent:', {
+        id: bill.id,
+        utilityProvider: bill.utilityProvider,
+        totalAmountDue: bill.totalAmountDue,
+        billDueDate: bill.billDueDate,
+        accountNumber: bill.accountNumber,
+        status: bill.status
+      });
 
       // Open agent modal
       setSelectedBillForAgent(bill);
       setShowAgentModal(true);
+      
+      console.log('✅ Agent modal opened successfully');
     } catch (error) {
-      console.error('Error launching agent:', error);
+      console.error('❌ Error launching agent:', error);
       alert('Failed to launch agent. Please try again.');
     }
   };
