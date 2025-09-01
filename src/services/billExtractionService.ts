@@ -47,6 +47,8 @@ export class BillExtractionService {
             confidence_score: billData.confidenceScore,
             address_match_score: billData.addressMatchScore,
             matched_property_address: billData.matchedPropertyAddress,
+            utility_provider: billData.utilityProvider,
+            associated_property_id: billData.associatedPropertyId,
             status: billData.status,
             was_edited: false, // Reset to false since this is a fresh extraction
             updated_at: new Date().toISOString()
@@ -77,6 +79,8 @@ export class BillExtractionService {
             confidence_score: billData.confidenceScore,
             address_match_score: billData.addressMatchScore,
             matched_property_address: billData.matchedPropertyAddress,
+            utility_provider: billData.utilityProvider,
+            associated_property_id: billData.associatedPropertyId,
             status: billData.status,
             was_edited: billData.wasEdited
           });
@@ -136,10 +140,14 @@ export class BillExtractionService {
         confidenceScore: row.confidence_score,
         addressMatchScore: row.address_match_score,
         matchedPropertyAddress: row.matched_property_address,
+        utilityProvider: row.utility_provider,
         status: row.status,
         wasEdited: row.was_edited,
         rejectionComment: row.rejection_comment,
         associatedPropertyId: row.associated_property_id,
+        paymentStatus: row.payment_status,
+        stripePaymentIntentId: row.stripe_payment_intent_id,
+        paidAt: row.paid_at,
         createdAt: row.created_at,
         updatedAt: row.updated_at
       }));
@@ -323,6 +331,7 @@ export class BillExtractionService {
           billing_period_end: updatedData.billingPeriodEnd,
           billing_days: updatedData.billingDays,
           total_amount_due: updatedData.totalAmountDue,
+          utility_provider: updatedData.utilityProvider,
           was_edited: true,
           updated_at: new Date().toISOString()
         })

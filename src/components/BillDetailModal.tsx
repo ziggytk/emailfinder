@@ -318,6 +318,25 @@ export const BillDetailModal: React.FC<BillDetailModalProps> = ({
               </div>
               
               <div className="bg-gray-50 p-4 rounded-lg">
+                <label className="block text-sm font-medium text-gray-600 mb-1">Utility Provider</label>
+                {isEditing ? (
+                  <input
+                    type="text"
+                    value={editedData.utilityProvider || ''}
+                    onChange={(e) => handleFieldChange('utilityProvider', e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Enter utility provider name"
+                  />
+                ) : (
+                  <p className="text-gray-900 font-medium">
+                    {editedData.utilityProvider || (
+                      <span className="text-gray-400 italic">Not specified</span>
+                    )}
+                  </p>
+                )}
+              </div>
+              
+              <div className="bg-gray-50 p-4 rounded-lg">
                 <label className="block text-sm font-medium text-gray-600 mb-1">Home Address</label>
                 {isEditing ? (
                   <textarea

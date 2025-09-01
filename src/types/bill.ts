@@ -15,10 +15,14 @@ export interface BillData {
   confidenceScore: number; // 0-100
   addressMatchScore: number; // 0-100 - new field for address matching
   matchedPropertyAddress?: string; // Address of the property this bill is associated with
+  utilityProvider?: string; // User-provided utility provider name
   status: 'pending' | 'approved' | 'rejected';
   wasEdited: boolean; // Track if user edited the data
   rejectionComment?: string; // Comment when bill is rejected
   associatedPropertyId?: string; // ID of the property this bill is associated with
+  paymentStatus?: 'unpaid' | 'paid' | 'failed' | 'pending';
+  stripePaymentIntentId?: string;
+  paidAt?: string; // ISO date string
   createdAt: string; // ISO date string
   updatedAt: string; // ISO date string
 }
@@ -26,6 +30,7 @@ export interface BillData {
 export interface BillExtractionRequest {
   imageUrl: string;
   propertyAddresses?: string[]; // Array of property addresses to match against
+  utilityProviders?: string[]; // Array of utility provider names to associate with bills
 }
 
 export interface BillExtractionResponse {

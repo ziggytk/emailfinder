@@ -1,19 +1,27 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { Elements } from '@stripe/react-stripe-js';
+import { loadStripe } from '@stripe/stripe-js';
 import { LoginScreen } from './components/LoginScreen';
 import { UtilityProviderSelection } from './components/UtilityProviderSelection';
 import { UtilityBillResults } from './components/UtilityBillResults';
 import { BillExtractionModal } from './components/BillExtractionModal';
+import PaymentModal from './components/PaymentModal';
+import AgentModal from './components/AgentModal';
 
 import { BillDataTable } from './components/BillDataTable';
 import { gmailApiService } from './services/gmailApi';
 import { utilityService } from './services/utilityService';
 import { billExtractionService } from './services/billExtractionService';
 import { openaiService } from './services/openaiService';
+import { StripeService } from './services/stripeService';
 
 import { User } from './types/email';
 import { UtilityBill, UtilityProvider, UtilityAccount } from './types/utility';
 import { BillData } from './types/bill';
 import { Loader2 } from 'lucide-react';
+
+// Initialize Stripe (replace with your publishable key)
+const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || 'pk_test_your_publishable_key_here');
 
 type AppState = 'loading' | 'login' | 'provider-selection' | 'searching' | 'results' | 'bill-extraction';
 
@@ -27,6 +35,10 @@ export default function App() {
   const [isExtracting, setIsExtracting] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [showBillExtractionModal, setShowBillExtractionModal] = useState(false);
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [selectedBillForPayment, setSelectedBillForPayment] = useState<BillData | null>(null);
+  const [showAgentModal, setShowAgentModal] = useState(false);
+  const [selectedBillForAgent, setSelectedBillForAgent] = useState<BillData | null>(null);
 
 
 
@@ -335,27 +347,54 @@ export default function App() {
         return;
       }
 
-      // Here you would integrate with your payment system
-      // For now, we'll show a confirmation dialog
-      const confirmed = window.confirm(
-        `Pay bill for ${bill.ownerName}?\n\n` +
-        `Amount: ${new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(bill.totalAmountDue)}\n` +
-        `Due Date: ${new Date(bill.billDueDate).toLocaleDateString()}\n` +
-        `Account: ${bill.accountNumber}\n\n` +
-        `This will redirect you to the payment portal.`
-      );
+      // Open payment modal
+      setSelectedBillForPayment(bill);
+      setShowPaymentModal(true);
+    } catch (error) {
+      console.error('Error opening payment modal:', error);
+      alert('Failed to open payment modal. Please try again.');
+    }
+  };
 
-      if (confirmed) {
-        // TODO: Integrate with payment system
-        console.log('Processing payment for bill:', billId);
-        alert('Payment processing would be integrated here. Redirecting to payment portal...');
+  const handlePaymentSuccess = async (billId: string, paymentIntentId: string) => {
+    try {
+      // Update bill payment status in database
+      const result = await StripeService.updateBillPaymentStatus(billId, paymentIntentId, 'paid');
+      
+      if (result.success) {
+        // Update local state
+        setExtractedBills(prev => prev.map(bill => 
+          bill.id === billId 
+            ? { ...bill, paymentStatus: 'paid', stripePaymentIntentId: paymentIntentId, paidAt: new Date().toISOString() }
+            : bill
+        ));
         
-        // You could redirect to a payment URL here
-        // window.open('https://your-payment-portal.com/pay?billId=' + billId, '_blank');
+        alert('Payment successful! Bill has been marked as paid.');
+      } else {
+        console.error('Failed to update payment status:', result.error);
+        alert('Payment successful, but failed to update bill status. Please refresh the page.');
       }
     } catch (error) {
-      console.error('Error processing payment:', error);
-      alert('Failed to process payment. Please try again.');
+      console.error('Error updating payment status:', error);
+      alert('Payment successful, but failed to update bill status. Please refresh the page.');
+    }
+  };
+
+  const handleLaunchAgent = async (billId: string) => {
+    try {
+      // Find the bill to get its details
+      const bill = extractedBills.find(b => b.id === billId);
+      if (!bill) {
+        console.error('Bill not found');
+        return;
+      }
+
+      // Open agent modal
+      setSelectedBillForAgent(bill);
+      setShowAgentModal(true);
+    } catch (error) {
+      console.error('Error launching agent:', error);
+      alert('Failed to launch agent. Please try again.');
     }
   };
 
@@ -393,17 +432,39 @@ export default function App() {
           try {
             console.log(`📄 Extracting from: ${imageUrl}`);
             console.log(`🏘️ Using property addresses:`, propertyAddresses);
+            // Get utility providers from selected accounts
+            const utilityProviders = selectedAccounts
+              .map(account => account.provider.name)
+              .filter((name, index, arr) => arr.indexOf(name) === index); // Remove duplicates
+
             const response = await openaiService.extractBillData({ 
               imageUrl,
-              propertyAddresses 
+              propertyAddresses,
+              utilityProviders
             });
             
             if (response.success && response.data) {
+              // Auto-associate with user property if address match score is high enough
+              let billData = response.data;
+              if (billData.addressMatchScore >= 75 && billData.matchedPropertyAddress) {
+                // Find the matching account from selectedAccounts
+                const matchingAccount = selectedAccounts.find(account => {
+                  const accountAddress = `${account.address.street}, ${account.address.city}, ${account.address.state} ${account.address.zipCode}`;
+                  return accountAddress === billData.matchedPropertyAddress;
+                });
+                
+                if (matchingAccount) {
+                  billData.associatedPropertyId = matchingAccount.id;
+                  billData.status = 'approved';
+                  console.log(`🏠 Auto-associated bill with property: ${matchingAccount.id}`);
+                }
+              }
+              
               // Save to database
-              const saveResponse = await billExtractionService.saveBillExtraction(response.data);
+              const saveResponse = await billExtractionService.saveBillExtraction(billData);
               if (saveResponse.success) {
                 console.log(`✅ Successfully extracted and saved bill data`);
-                return response.data;
+                return billData;
               } else {
                 console.error(`❌ Failed to save bill data:`, saveResponse.error);
                 return null;
@@ -751,6 +812,21 @@ export default function App() {
                       >
                         Pay Bill
                       </button>
+                      <button
+                        onClick={() => {
+                          const approvedBills = extractedBills.filter(bill => bill.status === 'approved');
+                          if (approvedBills.length === 0) {
+                            alert('No approved bills available for agent analysis.');
+                            return;
+                          }
+                          // For now, just show the first approved bill
+                          // In a real implementation, you might want to show a selection modal
+                          handleLaunchAgent(approvedBills[0].id);
+                        }}
+                        className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                      >
+                        Launch Agent
+                      </button>
                     </div>
                   </div>
                   <BillDataTable 
@@ -760,8 +836,10 @@ export default function App() {
                     onReject={handleRejectBill}
                     onUnreject={handleUnrejectBill}
                     onPayBill={handlePayBill}
+                    onLaunchAgent={handleLaunchAgent}
                     onDataUpdated={handleBillDataUpdated}
                     propertyAddresses={getPropertyAddresses()}
+                    selectedAccounts={selectedAccounts}
                   />
                 </div>
               )}
@@ -783,8 +861,10 @@ export default function App() {
                     onReject={handleRejectBill}
                     onUnreject={handleUnrejectBill}
                     onPayBill={handlePayBill}
+                    onLaunchAgent={handleLaunchAgent}
                     onDataUpdated={handleBillDataUpdated}
                     propertyAddresses={getPropertyAddresses()}
+                    selectedAccounts={selectedAccounts}
                   />
                 </div>
               )}
@@ -805,8 +885,10 @@ export default function App() {
                     onReject={handleRejectBill}
                     onUnreject={handleUnrejectBill}
                     onPayBill={handlePayBill}
+                    onLaunchAgent={handleLaunchAgent}
                     onDataUpdated={handleBillDataUpdated}
                     propertyAddresses={getPropertyAddresses()}
+                    selectedAccounts={selectedAccounts}
                   />
                 </div>
               )}
@@ -840,7 +922,7 @@ export default function App() {
 
   // Bill Extraction Modal
   return (
-    <>
+    <Elements stripe={stripePromise}>
       {renderAppState()}
       <BillExtractionModal
         isOpen={showBillExtractionModal}
@@ -848,7 +930,24 @@ export default function App() {
         onBillExtracted={handleBillExtracted}
         propertyAddresses={getPropertyAddresses()}
       />
-
-    </>
+      <PaymentModal
+        isOpen={showPaymentModal}
+        onClose={() => {
+          setShowPaymentModal(false);
+          setSelectedBillForPayment(null);
+        }}
+        bill={selectedBillForPayment}
+        onPaymentSuccess={handlePaymentSuccess}
+      />
+      <AgentModal
+        isOpen={showAgentModal}
+        onClose={() => {
+          setShowAgentModal(false);
+          setSelectedBillForAgent(null);
+        }}
+        billId={selectedBillForAgent?.id}
+        billData={selectedBillForAgent}
+      />
+    </Elements>
   );
 }

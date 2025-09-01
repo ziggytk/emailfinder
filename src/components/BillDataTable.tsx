@@ -10,11 +10,13 @@ interface BillDataTableProps {
   onReject?: (id: string, comment?: string) => void;
   onUnreject?: (id: string) => void;
   onPayBill?: (id: string) => void;
+  onLaunchAgent?: (id: string) => void;
   onDataUpdated?: (updatedBill: BillData) => void;
   propertyAddresses?: string[];
+  selectedAccounts?: any[]; // User-provided property accounts
 }
 
-export const BillDataTable: React.FC<BillDataTableProps> = ({ bills, onDelete, onApprove, onReject, onUnreject, onPayBill, onDataUpdated, propertyAddresses = [] }) => {
+export const BillDataTable: React.FC<BillDataTableProps> = ({ bills, onDelete, onApprove, onReject, onUnreject, onPayBill, onLaunchAgent, onDataUpdated, propertyAddresses = [], selectedAccounts = [] }) => {
   const [sortField, setSortField] = useState<keyof BillData>('createdAt');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   const [filterOwner, setFilterOwner] = useState('');
@@ -83,6 +85,21 @@ export const BillDataTable: React.FC<BillDataTableProps> = ({ bills, onDelete, o
       style: 'currency',
       currency: 'USD'
     }).format(amount);
+  };
+
+  const getUserProvidedAddress = (propertyId: string) => {
+    if (!propertyId || !selectedAccounts || selectedAccounts.length === 0) {
+      return null;
+    }
+
+    // Find the account that matches this property ID
+    const account = selectedAccounts.find(acc => acc.id === propertyId);
+    if (account && account.address) {
+      const { street, city, state, zipCode } = account.address;
+      return `${street}, ${city}, ${state} ${zipCode}`;
+    }
+
+    return null;
   };
 
   const handleCloseModal = () => {
@@ -208,6 +225,15 @@ export const BillDataTable: React.FC<BillDataTableProps> = ({ bills, onDelete, o
               </th>
               <th 
                 className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                onClick={() => handleSort('utilityProvider')}
+              >
+                Utility Provider
+                {sortField === 'utilityProvider' && (
+                  <span className="ml-1">{sortDirection === 'asc' ? '↑' : '↓'}</span>
+                )}
+              </th>
+              <th 
+                className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
                 onClick={() => handleSort('homeAddress')}
               >
                 Address
@@ -251,6 +277,15 @@ export const BillDataTable: React.FC<BillDataTableProps> = ({ bills, onDelete, o
               >
                 Amount Due
                 {sortField === 'totalAmountDue' && (
+                  <span className="ml-1">{sortDirection === 'asc' ? '↑' : '↓'}</span>
+                )}
+              </th>
+              <th 
+                className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                onClick={() => handleSort('paymentStatus')}
+              >
+                Payment Status
+                {sortField === 'paymentStatus' && (
                   <span className="ml-1">{sortDirection === 'asc' ? '↑' : '↓'}</span>
                 )}
               </th>
@@ -341,6 +376,11 @@ export const BillDataTable: React.FC<BillDataTableProps> = ({ bills, onDelete, o
                   {bill.accountNumber}
                 </td>
                 <td className="px-4 py-3 text-sm text-gray-900">
+                  {bill.utilityProvider || (
+                    <span className="text-gray-400 italic">Not specified</span>
+                  )}
+                </td>
+                <td className="px-4 py-3 text-sm text-gray-900">
                   <div className="max-w-xs truncate" title={bill.homeAddress}>
                     {bill.homeAddress}
                   </div>
@@ -369,29 +409,51 @@ export const BillDataTable: React.FC<BillDataTableProps> = ({ bills, onDelete, o
                 <td className="px-4 py-3 text-sm text-gray-900">
                   {bill.associatedPropertyId ? (
                     <div className="max-w-xs truncate" title={bill.associatedPropertyId}>
-                      {bill.associatedPropertyId.startsWith('new-') ? (
-                        <div>
-                          <span className="text-green-600 font-medium">
-                            {bill.associatedPropertyId.substring(4)}
-                          </span>
-                          <div className="text-xs text-green-600 mt-1">
-                            ✨ New Property
-                          </div>
-                        </div>
-                      ) : bill.associatedPropertyId.startsWith('property-') ? (
-                        <div>
-                          <span className="text-blue-600 font-medium">
-                            Property #{bill.associatedPropertyId.substring(9)}
-                          </span>
-                          <div className="text-xs text-blue-600 mt-1">
-                            📍 Existing Property
-                          </div>
-                        </div>
-                      ) : (
-                        <span className="text-purple-600 font-medium">
-                          {bill.associatedPropertyId}
-                        </span>
-                      )}
+                      {(() => {
+                        const userAddress = getUserProvidedAddress(bill.associatedPropertyId);
+                        if (userAddress) {
+                          return (
+                            <div>
+                              <span className="text-blue-600 font-medium">
+                                {userAddress}
+                              </span>
+                              <div className="text-xs text-blue-600 mt-1">
+                                📍 User Address
+                              </div>
+                            </div>
+                          );
+                        }
+                        
+                        if (bill.associatedPropertyId.startsWith('new-')) {
+                          return (
+                            <div>
+                              <span className="text-green-600 font-medium">
+                                {bill.associatedPropertyId.substring(4)}
+                              </span>
+                              <div className="text-xs text-green-600 mt-1">
+                                ✨ New Property
+                              </div>
+                            </div>
+                          );
+                        } else if (bill.associatedPropertyId.startsWith('property-')) {
+                          return (
+                            <div>
+                              <span className="text-blue-600 font-medium">
+                                Property #{bill.associatedPropertyId.substring(9)}
+                              </span>
+                              <div className="text-xs text-blue-600 mt-1">
+                                📍 Existing Property
+                              </div>
+                            </div>
+                          );
+                        } else {
+                          return (
+                            <span className="text-purple-600 font-medium">
+                              {bill.associatedPropertyId}
+                            </span>
+                          );
+                        }
+                      })()}
                     </div>
                   ) : bill.status === 'approved' ? (
                     <span className="text-orange-400 italic">Pending assignment</span>
@@ -404,6 +466,24 @@ export const BillDataTable: React.FC<BillDataTableProps> = ({ bills, onDelete, o
                 </td>
                 <td className="px-4 py-3 text-sm font-medium text-gray-900">
                   {formatCurrency(bill.totalAmountDue)}
+                </td>
+                <td className="px-4 py-3 text-sm text-gray-900">
+                  <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                    bill.paymentStatus === 'paid' ? 'bg-green-100 text-green-800' :
+                    bill.paymentStatus === 'failed' ? 'bg-red-100 text-red-800' :
+                    bill.paymentStatus === 'pending' ? 'bg-yellow-100 text-yellow-800' :
+                    'bg-gray-100 text-gray-800'
+                  }`}>
+                    {bill.paymentStatus === 'paid' ? 'Paid' :
+                     bill.paymentStatus === 'failed' ? 'Failed' :
+                     bill.paymentStatus === 'pending' ? 'Pending' :
+                     'Unpaid'}
+                  </span>
+                  {bill.paymentStatus === 'paid' && bill.paidAt && (
+                    <div className="text-xs text-gray-500 mt-1">
+                      {formatDate(bill.paidAt)}
+                    </div>
+                  )}
                 </td>
                 <td className="px-4 py-3 text-sm text-gray-900">
                   {bill.averageDailyElectricUsage.toFixed(2)}
@@ -447,7 +527,7 @@ export const BillDataTable: React.FC<BillDataTableProps> = ({ bills, onDelete, o
                   {/* Expanded row with approve/reject buttons */}
                   {isExpanded && (
                     <tr className="bg-gray-50">
-                      <td colSpan={13} className="px-4 py-3">
+                      <td colSpan={15} className="px-4 py-3">
                         <div className="flex items-center justify-between">
                           <div className="flex items-center space-x-4">
                             <span className="text-sm text-gray-600">Actions:</span>
@@ -522,6 +602,17 @@ export const BillDataTable: React.FC<BillDataTableProps> = ({ bills, onDelete, o
                                 className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm font-medium"
                               >
                                 Pay Bill
+                              </button>
+                            )}
+                            {onLaunchAgent && bill.status === 'approved' && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onLaunchAgent(bill.id);
+                                }}
+                                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
+                              >
+                                Launch Agent
                               </button>
                             )}
                           </div>

@@ -47,6 +47,7 @@ export class OpenAIService {
               - confidenceScore: Your confidence in the extraction accuracy (0-100, where 100 is completely confident)
               - propertyAssociationScore: Your confidence that this bill belongs to one of the provided property addresses (0-100, where 100 is completely certain it belongs)
               - associatedPropertyAddress: The property address this bill belongs to, or null if propertyAssociationScore < 75
+              - utilityProvider: The utility provider name from the bill (text)
               
               For confidenceScore, consider:
               - Image clarity and readability
@@ -81,7 +82,13 @@ ${request.propertyAddresses && request.propertyAddresses.length > 0
   : 'No properties provided'
 }
 
-IMPORTANT: You MUST include propertyAssociationScore (0-100) and associatedPropertyAddress in your JSON response. If no properties are provided, use propertyAssociationScore: 0 and associatedPropertyAddress: null.`
+Utility providers to check against:
+${request.utilityProviders && request.utilityProviders.length > 0 
+  ? request.utilityProviders.map((provider, index) => `${index + 1}. ${provider}`).join('\n')
+  : 'No utility providers provided'
+}
+
+IMPORTANT: You MUST include propertyAssociationScore (0-100), associatedPropertyAddress, and utilityProvider in your JSON response. If no properties are provided, use propertyAssociationScore: 0 and associatedPropertyAddress: null. Extract the utility provider name from the bill image.`
                 },
                 {
                   type: 'image_url',
@@ -172,6 +179,7 @@ IMPORTANT: You MUST include propertyAssociationScore (0-100) and associatedPrope
         confidenceScore: parseFloat(extractedData.confidenceScore) || 0,
         addressMatchScore: propertyAssociationScore,
         matchedPropertyAddress: associatedPropertyAddress,
+        utilityProvider: extractedData.utilityProvider || undefined,
         status: 'pending',
         wasEdited: false,
         createdAt: new Date().toISOString(),
