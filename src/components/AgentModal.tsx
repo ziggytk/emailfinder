@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { agentTools } from '../services/agentTools';
+import { agentApiService } from '../services/agentApiService';
+import { supabaseAuthService } from '../services/supabaseAuthService';
 
 interface AgentStatus {
   id: string;
@@ -53,7 +54,7 @@ const AgentModal: React.FC<AgentModalProps> = ({ isOpen, onClose, billId, billDa
   };
 
   const runAIAgent = async () => {
-    if (!billData) {
+    if (!billData || !billId) {
       addStatusUpdate('error', 'No bill data available', 'Cannot proceed without bill information');
       setIsAgentRunning(false);
       return;
@@ -62,38 +63,64 @@ const AgentModal: React.FC<AgentModalProps> = ({ isOpen, onClose, billId, billDa
     console.log('🤖 Starting AI Agent with bill data:', billData);
 
     try {
+      // Get user token for API authentication
+      addStatusUpdate('info', 'Authenticating', 'Getting user session...');
+      const session = await supabaseAuthService.getSession();
+      
+      if (!session) {
+        addStatusUpdate('error', 'Authentication failed', 'Please log in again');
+        setIsAgentRunning(false);
+        return;
+      }
+
+      const userToken = session.access_token;
+
       // Create a task description based on bill data
-      addStatusUpdate('info', 'Starting AI agent', 'Initializing browser automation...');
+      addStatusUpdate('info', 'Starting AI agent', 'Connecting to automation server...');
       setAgentProgress(25);
-      console.log('🔄 Step 1/4: Initializing browser automation...');
+      console.log('🔄 Step 1/3: Connecting to automation server...');
 
       const taskDescription = `Navigate to ${billData.utilityProvider || 'utility provider'} website and find the payment page. 
       Bill Amount: $${billData.totalAmountDue || 'unknown'}, Due Date: ${billData.billDueDate || 'unknown'}. 
       Look for guest payment or one-time payment options.`;
       
       addStatusUpdate('info', 'Task defined', taskDescription);
-      setAgentProgress(50);
-      console.log('🔄 Step 2/4: Task defined -', taskDescription);
+      setAgentProgress(40);
+      console.log('🔄 Step 2/3: Task defined -', taskDescription);
 
-      // Run the real agent - no fallbacks
-      addStatusUpdate('info', 'Initializing Playwright', 'Starting real browser automation...');
-      setAgentProgress(75);
-      console.log('🔄 Step 3/4: Attempting real Playwright agent...');
+      // Launch agent on backend server
+      addStatusUpdate('info', 'Launching Agent', 'Starting browser automation on server...');
+      setAgentProgress(50);
+      console.log('🔄 Step 3/3: Launching agent on backend...');
       
-      // Import and run the real agent
-      console.log('📦 Attempting to import agent tools...');
-      addStatusUpdate('info', 'Importing Agent Tools', 'Loading Playwright automation tools...');
+      const launchResponse = await agentApiService.launchAgent(billId, userToken);
       
-      // Use the already imported agent tools
-      console.log('✅ Agent tools already imported');
+      if (!launchResponse.success) {
+        throw new Error('Failed to launch agent');
+      }
+
+      addStatusUpdate('success', 'Agent Launched', 'Browser automation started successfully!');
+      console.log('✅ Agent launched, session ID:', launchResponse.session.id);
       
-      // Execute real navigation sequence
-      const results = await executeNavigationSequence(agentTools, billData);
-      addStatusUpdate('success', 'Real Agent Success', 'Real browser automation completed!');
+      // Poll for agent status updates
+      addStatusUpdate('info', 'Monitoring Progress', 'Watching agent progress...');
+      setAgentProgress(60);
       
-      addStatusUpdate('success', 'Agent process completed', results);
+      await agentApiService.pollAgentStatus(
+        launchResponse.session.id,
+        userToken,
+        (session) => {
+          // Update progress based on session status
+          setAgentProgress(session.progress);
+          addStatusUpdate('info', 'Progress Update', session.currentStep);
+          
+          console.log(`📊 Agent progress: ${session.progress}% - ${session.currentStep}`);
+        }
+      );
+      
+      addStatusUpdate('success', 'Agent Completed', 'Browser automation finished successfully!');
       setAgentProgress(100);
-      console.log('🔄 Step 4/4: Agent process completed successfully');
+      console.log('🎉 Agent process completed successfully');
 
       setIsAgentRunning(false);
     } catch (error) {
@@ -102,155 +129,6 @@ const AgentModal: React.FC<AgentModalProps> = ({ isOpen, onClose, billId, billDa
       setIsAgentRunning(false);
     }
   };
-
-
-
-  const executeNavigationSequence = async (tools: any, billData: any) => {
-    const results: string[] = [];
-    
-    try {
-      console.log('🧭 Starting REAL navigation sequence...');
-      
-      // Step 1: Navigate to provider website
-      addStatusUpdate('info', 'Step 1', `Navigating to ${billData.utilityProvider || 'utility provider'} website...`);
-      console.log('🌐 Step 1: Opening provider URL...');
-      
-      let providerUrl = 'https://www.coned.com/'; // Default to ConEdison
-      if (billData.utilityProvider?.toLowerCase().includes('coned')) {
-        providerUrl = 'https://www.coned.com/';
-      } else if (billData.utilityProvider?.toLowerCase().includes('national grid')) {
-        providerUrl = 'https://www.nationalgrid.com/';
-      } else if (billData.utilityProvider?.toLowerCase().includes('pseg')) {
-        providerUrl = 'https://www.pseg.com/';
-      }
-      
-      console.log(`🎯 Provider URL determined: ${providerUrl}`);
-      console.log(`🔍 Bill utility provider: ${billData.utilityProvider || 'Not specified'}`);
-      
-      // Use real Playwright tools
-      const openResult = await tools.open_url({ url: providerUrl });
-      console.log('🌐 Open URL result:', openResult);
-      
-      if (openResult && typeof openResult === 'string') {
-        try {
-          const openParsed = JSON.parse(openResult);
-          if (openParsed.ok) {
-            results.push(`✅ Successfully opened ${providerUrl}`);
-            addStatusUpdate('success', 'Navigation', `Opened ${providerUrl}`);
-            console.log(`✅ Successfully opened ${providerUrl}`);
-          } else {
-            throw new Error(`Failed to open ${providerUrl}: ${openParsed.error}`);
-          }
-        } catch (parseError) {
-          // If it's not JSON, assume it's a success message
-          results.push(`✅ Successfully opened ${providerUrl}`);
-          addStatusUpdate('success', 'Navigation', `Opened ${providerUrl}`);
-          console.log(`✅ Successfully opened ${providerUrl} (raw result: ${openResult})`);
-        }
-      }
-      
-      // Step 2: Wait for page to load
-      addStatusUpdate('info', 'Step 2', 'Waiting for page to load...');
-      console.log('⏳ Step 2: Waiting for page to load...');
-      await new Promise(resolve => setTimeout(resolve, 3000));
-      console.log('✅ Page load wait completed');
-      
-      // Step 3: Get page content
-      addStatusUpdate('info', 'Step 3', 'Analyzing page content...');
-      console.log('🔍 Step 3: Analyzing page content...');
-      const domResult = await tools.get_dom_text();
-      console.log('🔍 DOM result:', domResult);
-      
-      if (domResult && typeof domResult === 'string') {
-        try {
-          const domParsed = JSON.parse(domResult);
-          if (domParsed.ok) {
-            results.push(`✅ Page content analyzed (${domParsed.text.length} characters)`);
-            addStatusUpdate('success', 'Analysis', 'Page content analyzed');
-            console.log(`✅ Page content analyzed: ${domParsed.text.length} characters`);
-          }
-        } catch (parseError) {
-          results.push(`✅ Page content analyzed (raw result received)`);
-          addStatusUpdate('success', 'Analysis', 'Page content analyzed');
-          console.log(`✅ Page content analyzed (raw result: ${domResult})`);
-        }
-      }
-      
-      // Step 4: Look for payment options
-      addStatusUpdate('info', 'Step 4', 'Looking for payment options...');
-      console.log('💳 Step 4: Looking for payment options...');
-      
-      const paymentTargets = ['Pay Bill', 'Guest Pay', 'Pay as Guest'];
-      let paymentFound = false;
-      
-      for (const target of paymentTargets) {
-        try {
-          addStatusUpdate('info', 'Trying', `Clicking "${target}"...`);
-          console.log(`🎯 Attempting to click: "${target}"`);
-          
-          const clickResult = await tools.click_text_like(target, [target.toLowerCase(), 'payment', 'pay']);
-          console.log(`🎯 Click result for "${target}":`, clickResult);
-          
-          if (clickResult && typeof clickResult === 'string') {
-            try {
-              const clickParsed = JSON.parse(clickResult);
-              if (clickParsed.ok && clickParsed.clicked) {
-                results.push(`✅ Successfully clicked "${target}"`);
-                addStatusUpdate('success', 'Payment Found', `Clicked "${target}"`);
-                paymentFound = true;
-                console.log(`✅ Successfully clicked "${target}"`);
-                break;
-              }
-            } catch (parseError) {
-              // If it's not JSON, assume success
-              results.push(`✅ Successfully clicked "${target}" (raw result)`);
-              addStatusUpdate('success', 'Payment Found', `Clicked "${target}"`);
-              paymentFound = true;
-              console.log(`✅ Successfully clicked "${target}" (raw result: ${clickResult})`);
-              break;
-            }
-          }
-        } catch (clickError) {
-          console.log(`❌ Click on "${target}" failed:`, clickError);
-        }
-      }
-      
-      if (!paymentFound) {
-        results.push('⚠️ No payment options found on main page');
-        addStatusUpdate('warning', 'Payment Options', 'No payment options found on main page');
-        console.log('⚠️ No payment options found on main page');
-      }
-      
-      // Step 5: Get final status
-      console.log('📍 Step 5: Getting final URL and status...');
-      const finalUrlResult = await tools.current_url();
-      console.log('📍 Final URL result:', finalUrlResult);
-      
-      if (finalUrlResult && typeof finalUrlResult === 'string') {
-        try {
-          const finalUrlParsed = JSON.parse(finalUrlResult);
-          if (finalUrlParsed.ok) {
-            results.push(`📍 Final URL: ${finalUrlParsed.url}`);
-            addStatusUpdate('info', 'Final Status', `Current URL: ${finalUrlParsed.url}`);
-            console.log(`📍 Final URL: ${finalUrlParsed.url}`);
-          }
-        } catch (parseError) {
-          results.push(`📍 Final URL: ${finalUrlResult}`);
-          addStatusUpdate('info', 'Final Status', `Current URL: ${finalUrlResult}`);
-          console.log(`📍 Final URL: ${finalUrlResult}`);
-        }
-      }
-      
-      console.log('🎉 REAL navigation sequence completed successfully!');
-      return results.join('\n');
-      
-    } catch (error) {
-      console.error('❌ REAL navigation sequence error:', error);
-      results.push(`❌ Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      throw error;
-    }
-  }
-
 
 
   const getStatusIcon = (type: AgentStatus['type']) => {

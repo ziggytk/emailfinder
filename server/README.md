@@ -1,12 +1,15 @@
 # Utility Agent Server
 
-A Node.js server that provides browser automation capabilities for utility bill payments using Puppeteer and Supabase.
+A Node.js server that provides browser automation capabilities for utility bill payments using **Playwright** and Supabase.
 
 ## 🚀 Quick Start
 
 ### 1. Install Dependencies
 ```bash
 npm install
+
+# Install Playwright browsers (required for automation)
+npx playwright install chromium
 ```
 
 ### 2. Configure Environment
