@@ -814,21 +814,6 @@ export default function App() {
                         onClick={() => {
                           const approvedBills = extractedBills.filter(bill => bill.status === 'approved');
                           if (approvedBills.length === 0) {
-                            alert('No approved bills available for payment.');
-                            return;
-                          }
-                          // For now, just show the first approved bill
-                          // In a real implementation, you might want to show a selection modal
-                          handlePayBill(approvedBills[0].id);
-                        }}
-                        className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
-                      >
-                        Pay Bill
-                      </button>
-                      <button
-                        onClick={() => {
-                          const approvedBills = extractedBills.filter(bill => bill.status === 'approved');
-                          if (approvedBills.length === 0) {
                             alert('No approved bills available for agent analysis.');
                             return;
                           }
@@ -848,7 +833,6 @@ export default function App() {
                     onApprove={handleApproveBill}
                     onReject={handleRejectBill}
                     onUnreject={handleUnrejectBill}
-                    onPayBill={handlePayBill}
                     onLaunchAgent={handleLaunchAgent}
                     onDataUpdated={handleBillDataUpdated}
                     propertyAddresses={getPropertyAddresses()}
@@ -873,7 +857,6 @@ export default function App() {
                     onApprove={handleApproveBill}
                     onReject={handleRejectBill}
                     onUnreject={handleUnrejectBill}
-                    onPayBill={handlePayBill}
                     onLaunchAgent={handleLaunchAgent}
                     onDataUpdated={handleBillDataUpdated}
                     propertyAddresses={getPropertyAddresses()}
@@ -897,7 +880,6 @@ export default function App() {
                     onApprove={handleApproveBill}
                     onReject={handleRejectBill}
                     onUnreject={handleUnrejectBill}
-                    onPayBill={handlePayBill}
                     onLaunchAgent={handleLaunchAgent}
                     onDataUpdated={handleBillDataUpdated}
                     propertyAddresses={getPropertyAddresses()}

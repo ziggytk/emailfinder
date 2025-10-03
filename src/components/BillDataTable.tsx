@@ -9,14 +9,13 @@ interface BillDataTableProps {
   onApprove?: (id: string, propertyId?: string) => void;
   onReject?: (id: string, comment?: string) => void;
   onUnreject?: (id: string) => void;
-  onPayBill?: (id: string) => void;
   onLaunchAgent?: (id: string) => void;
   onDataUpdated?: (updatedBill: BillData) => void;
   propertyAddresses?: string[];
   selectedAccounts?: any[]; // User-provided property accounts
 }
 
-export const BillDataTable: React.FC<BillDataTableProps> = ({ bills, onDelete, onApprove, onReject, onUnreject, onPayBill, onLaunchAgent, onDataUpdated, propertyAddresses = [], selectedAccounts = [] }) => {
+export const BillDataTable: React.FC<BillDataTableProps> = ({ bills, onDelete, onApprove, onReject, onUnreject, onLaunchAgent, onDataUpdated, propertyAddresses = [], selectedAccounts = [] }) => {
   const [sortField, setSortField] = useState<keyof BillData>('createdAt');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   const [filterOwner, setFilterOwner] = useState('');
@@ -591,17 +590,6 @@ export const BillDataTable: React.FC<BillDataTableProps> = ({ bills, onDelete, o
                                 className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors text-sm font-medium"
                               >
                                 Delete
-                              </button>
-                            )}
-                            {onPayBill && bill.status === 'approved' && (
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  onPayBill(bill.id);
-                                }}
-                                className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm font-medium"
-                              >
-                                Pay Bill
                               </button>
                             )}
                             {onLaunchAgent && bill.status === 'approved' && (
