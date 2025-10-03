@@ -138,6 +138,35 @@ export class SupabaseAuthService {
   }
 
   /**
+   * Get the current Supabase session
+   */
+  async getSession(): Promise<{ access_token: string; refresh_token: string } | null> {
+    try {
+      const { data: { session }, error } = await supabase.auth.getSession();
+      
+      if (error) {
+        console.error('❌ Error getting Supabase session:', error);
+        return null;
+      }
+
+      if (!session) {
+        console.log('ℹ️ No current Supabase session');
+        return null;
+      }
+
+      console.log('✅ Got Supabase session');
+      return {
+        access_token: session.access_token,
+        refresh_token: session.refresh_token
+      };
+
+    } catch (error) {
+      console.error('❌ Failed to get Supabase session:', error);
+      return null;
+    }
+  }
+
+  /**
    * Ensure user is authenticated, sign in if needed
    */
   async ensureAuthenticated(): Promise<SupabaseUser> {

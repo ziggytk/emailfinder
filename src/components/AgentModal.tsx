@@ -65,12 +65,33 @@ const AgentModal: React.FC<AgentModalProps> = ({ isOpen, onClose, billId, billDa
     try {
       // Get user token for API authentication
       addStatusUpdate('info', 'Authenticating', 'Getting user session...');
-      const session = await supabaseAuthService.getSession();
+      let session = await supabaseAuthService.getSession();
       
       if (!session) {
-        addStatusUpdate('error', 'Authentication failed', 'Please log in again');
-        setIsAgentRunning(false);
-        return;
+        addStatusUpdate('warning', 'Not authenticated with Supabase', 'Attempting to authenticate...');
+        
+        // Try to ensure user is authenticated
+        try {
+          const user = await supabaseAuthService.ensureAuthenticated();
+          if (user) {
+            // Try to get session again after authentication
+            const newSession = await supabaseAuthService.getSession();
+            if (!newSession) {
+              addStatusUpdate('error', 'Authentication failed', 'Please log in again');
+              setIsAgentRunning(false);
+              return;
+            }
+            session = newSession;
+          } else {
+            addStatusUpdate('error', 'Authentication failed', 'Please log in again');
+            setIsAgentRunning(false);
+            return;
+          }
+        } catch (authError) {
+          addStatusUpdate('error', 'Authentication failed', 'Please log in again');
+          setIsAgentRunning(false);
+          return;
+        }
       }
 
       const userToken = session.access_token;
