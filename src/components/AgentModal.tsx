@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { StripeService } from '../services/stripeService';
 
 interface AgentStatus {
   id: string;
@@ -63,67 +62,38 @@ const AgentModal: React.FC<AgentModalProps> = ({ isOpen, onClose, billId, billDa
 
     try {
       // Create a task description based on bill data
-      addStatusUpdate('info', 'Starting AI agent', 'Initializing payment automation...');
+      addStatusUpdate('info', 'Starting AI agent', 'Initializing browser automation...');
       setAgentProgress(25);
-      console.log('🔄 Step 1/4: Initializing payment automation...');
+      console.log('🔄 Step 1/4: Initializing browser automation...');
 
-      const taskDescription = `Process payment for ${billData.utilityProvider || 'utility provider'} bill. 
-      Amount: $${billData.totalAmountDue || 'unknown'}, Due Date: ${billData.billDueDate || 'unknown'}. 
-      Navigate to payment page and process payment via Stripe.`;
+      const taskDescription = `Navigate to ${billData.utilityProvider || 'utility provider'} website and find the payment page. 
+      Bill Amount: $${billData.totalAmountDue || 'unknown'}, Due Date: ${billData.billDueDate || 'unknown'}. 
+      Look for guest payment or one-time payment options.`;
       
       addStatusUpdate('info', 'Task defined', taskDescription);
       setAgentProgress(50);
       console.log('🔄 Step 2/4: Task defined -', taskDescription);
 
-      // Try to run the real agent, fall back to payment prompt if it fails
-      let results: string;
-      try {
-        addStatusUpdate('info', 'Initializing Playwright', 'Starting real browser automation...');
-        setAgentProgress(75);
-        console.log('🔄 Step 3/4: Attempting real Playwright agent...');
-        
-        // Try to import and run the real agent
-        console.log('📦 Attempting to import agent tools...');
-        addStatusUpdate('info', 'Importing Agent Tools', 'Loading Playwright automation tools...');
-        
-        try {
-          const { agentTools } = await import('../services/agentTools');
-          console.log('✅ Agent tools imported successfully');
-          
-          results = await executeNavigationSequence(agentTools, billData);
-          addStatusUpdate('success', 'Real Agent Success', 'Real browser automation completed!');
-        } catch (importError) {
-          console.log('📦 Import failed, this is expected in browser environment:', importError);
-          throw new Error('Dynamic import failed - using payment prompt mode');
-        }
-        
-      } catch (playwrightError: unknown) {
-        console.log('⚠️ Playwright failed, falling back to payment prompt:', playwrightError);
-        
-        const errorMessage = playwrightError instanceof Error ? playwrightError.message : String(playwrightError);
-        
-        if (errorMessage.includes('chromium-bidi') || 
-            errorMessage.includes('Cannot resolve') ||
-            errorMessage.includes('require is not defined') ||
-            errorMessage.includes('Failed to fetch dynamically imported module') ||
-            errorMessage.includes('Failed to fetch') ||
-            errorMessage.includes('Dynamic import failed')) {
-          
-          addStatusUpdate('info', 'Switching to Payment Mode', 'Playwright not available - using direct payment prompt');
-          console.log('🌐 Browser environment detected, switching to payment prompt mode');
-          
-          results = await processPaymentDirectly(billData);
-          addStatusUpdate('success', 'Payment Complete', 'Payment processed successfully via Stripe');
-          
-        } else {
-          // Re-throw if it's not a browser compatibility issue
-          throw playwrightError;
-        }
-      }
+      // Run the real agent - no fallbacks
+      addStatusUpdate('info', 'Initializing Playwright', 'Starting real browser automation...');
+      setAgentProgress(75);
+      console.log('🔄 Step 3/4: Attempting real Playwright agent...');
       
-      addStatusUpdate('success', 'Payment process completed', results);
+      // Import and run the real agent
+      console.log('📦 Attempting to import agent tools...');
+      addStatusUpdate('info', 'Importing Agent Tools', 'Loading Playwright automation tools...');
+      
+      // Import the real agent tools
+      const { agentTools } = await import('../services/agentTools');
+      console.log('✅ Agent tools imported successfully');
+      
+      // Execute real navigation sequence
+      const results = await executeNavigationSequence(agentTools, billData);
+      addStatusUpdate('success', 'Real Agent Success', 'Real browser automation completed!');
+      
+      addStatusUpdate('success', 'Agent process completed', results);
       setAgentProgress(100);
-      console.log('🔄 Step 4/4: Payment process completed successfully');
+      console.log('🔄 Step 4/4: Agent process completed successfully');
 
       setIsAgentRunning(false);
     } catch (error) {
@@ -281,100 +251,7 @@ const AgentModal: React.FC<AgentModalProps> = ({ isOpen, onClose, billId, billDa
     }
   }
 
-  const processPaymentDirectly = async (billData: any) => {
-    const results: string[] = [];
-    
-    try {
-      console.log('💳 Starting direct payment processing...');
-      
-      // Step 1: Show payment details
-      addStatusUpdate('info', 'Step 1', 'Displaying payment details...');
-      console.log('📋 Step 1: Displaying payment details...');
-      
-      const paymentDetails = {
-        utilityProvider: billData.utilityProvider || 'Unknown Provider',
-        accountNumber: billData.accountNumber || 'N/A',
-        amount: billData.totalAmountDue || '0.00',
-        dueDate: billData.billDueDate || 'Unknown',
-        billId: billData.id
-      };
-      
-      results.push(`✅ Payment details displayed for ${paymentDetails.utilityProvider}`);
-      addStatusUpdate('success', 'Payment Details', `Provider: ${paymentDetails.utilityProvider}, Amount: $${paymentDetails.amount}`);
-      console.log('✅ Payment details:', paymentDetails);
-      
-      // Step 2: Prompt for payment confirmation
-      addStatusUpdate('info', 'Step 2', 'Prompting for payment confirmation...');
-      console.log('💬 Step 2: Prompting for payment confirmation...');
-      
-      const confirmed = window.confirm(
-        `Confirm Payment:\n\n` +
-        `Utility Provider: ${paymentDetails.utilityProvider}\n` +
-        `Account Number: ${paymentDetails.accountNumber}\n` +
-        `Amount: $${paymentDetails.amount}\n` +
-        `Due Date: ${paymentDetails.dueDate}\n\n` +
-        `Do you want to proceed with this payment?`
-      );
-      
-      if (!confirmed) {
-        results.push('❌ Payment cancelled by user');
-        addStatusUpdate('warning', 'Payment Cancelled', 'User cancelled the payment');
-        console.log('❌ Payment cancelled by user');
-        return results.join('\n');
-      }
-      
-      results.push(`✅ Payment confirmed by user`);
-      addStatusUpdate('success', 'Payment Confirmed', 'User confirmed payment details');
-      console.log('✅ Payment confirmed by user');
-      
-      // Step 3: Process payment via Stripe
-      addStatusUpdate('info', 'Step 3', 'Processing payment via Stripe...');
-      console.log('💳 Step 3: Processing payment via Stripe...');
-      
-      try {
-        // Create payment intent
-        const paymentIntent = await StripeService.createPaymentIntent({
-          amount: Math.round(parseFloat(paymentDetails.amount) * 100), // Convert to cents
-          billId: paymentDetails.billId,
-          description: `Payment for ${paymentDetails.utilityProvider} - Account: ${paymentDetails.accountNumber}`
-        });
-        
-        if (paymentIntent.error) {
-          throw new Error(paymentIntent.error);
-        }
-        
-        results.push(`✅ Payment intent created: ${paymentIntent.clientSecret}`);
-        addStatusUpdate('success', 'Stripe Integration', 'Payment intent created successfully');
-        console.log('✅ Payment intent created:', paymentIntent);
-        
-        // Step 4: Show payment success
-        addStatusUpdate('success', 'Step 4', 'Payment completed successfully!');
-        console.log('🎉 Step 4: Payment completed successfully!');
-        
-        results.push(`✅ Payment completed successfully via Stripe`);
-        results.push(`💰 Amount paid: $${paymentDetails.amount}`);
-        results.push(`🔢 Payment ID: ${paymentIntent.clientSecret}`);
-        results.push(`📅 Paid on: ${new Date().toLocaleDateString()}`);
-        
-        addStatusUpdate('success', 'Payment Complete', `Successfully paid $${paymentDetails.amount} to ${paymentDetails.utilityProvider}`);
-        console.log('🎉 Payment completed successfully!');
-        
-      } catch (stripeError) {
-        console.error('❌ Stripe payment failed:', stripeError);
-        results.push(`❌ Stripe payment failed: ${stripeError instanceof Error ? stripeError.message : 'Unknown error'}`);
-        addStatusUpdate('error', 'Payment Failed', 'Stripe payment processing failed');
-        throw stripeError;
-      }
-      
-      console.log('🎉 Direct payment processing completed successfully!');
-      return results.join('\n');
-      
-    } catch (error) {
-      console.error('❌ Direct payment processing error:', error);
-      results.push(`❌ Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      throw error;
-    }
-  }
+
 
   const getStatusIcon = (type: AgentStatus['type']) => {
     switch (type) {
