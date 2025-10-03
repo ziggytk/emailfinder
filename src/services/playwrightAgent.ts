@@ -10,8 +10,8 @@ export class PlaywrightAgent {
   async initialize(): Promise<void> {
     try {
       this.browser = await chromium.launch({ 
-        headless: false, // Set to true for production
-        slowMo: 1000 // Slow down actions for visibility during development
+        headless: false, // Always show browser for user interaction
+        slowMo: 500 // Moderate speed for better user experience
       });
       this.page = await this.browser.newPage();
       

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { agentTools } from '../services/agentTools';
 
 interface AgentStatus {
   id: string;
@@ -83,9 +84,8 @@ const AgentModal: React.FC<AgentModalProps> = ({ isOpen, onClose, billId, billDa
       console.log('📦 Attempting to import agent tools...');
       addStatusUpdate('info', 'Importing Agent Tools', 'Loading Playwright automation tools...');
       
-      // Import the real agent tools
-      const { agentTools } = await import('../services/agentTools');
-      console.log('✅ Agent tools imported successfully');
+      // Use the already imported agent tools
+      console.log('✅ Agent tools already imported');
       
       // Execute real navigation sequence
       const results = await executeNavigationSequence(agentTools, billData);
