@@ -1,157 +1,74 @@
-/**
- * Agent API Service - Frontend service to communicate with the backend agent server
- */
+import { BillData } from '../types/bill';
 
-const AGENT_API_URL = import.meta.env.VITE_AGENT_API_URL || 'http://localhost:3000';
+const API_BASE_URL = 'http://localhost:3000';
 
-export interface AgentSession {
-  id: string;
-  userId: string;
-  billId: string;
-  status: 'idle' | 'running' | 'completed' | 'failed';
-  progress: number;
-  currentStep: string;
-  error?: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface LaunchAgentResponse {
+export interface AgentNavigateResponse {
   success: boolean;
-  session: AgentSession;
-  message: string;
+  screenshots: string[];
+  finalUrl: string;
+  actionHistory: string[];
+  iterations: number;
+  error?: string;
+  pausedForUser?: boolean;
+  pauseReason?: string;
 }
 
-export interface AgentStatus {
-  type: 'info' | 'success' | 'warning' | 'error';
-  message: string;
-  details?: string;
-}
+export class AgentApiService {
+  /**
+   * Launch AI agent to navigate to utility provider and find guest pay page
+   */
+  async launchAgent(billData: BillData, userToken?: string): Promise<AgentNavigateResponse> {
+    try {
+      console.log('🚀 Calling agent API...', { provider: billData.utilityProvider });
 
-/**
- * Launch the Playwright agent on the backend server
- */
-export async function launchAgent(billId: string, userToken: string): Promise<LaunchAgentResponse> {
-  try {
-    console.log('🚀 Launching agent via API...', { billId });
-    
-    const response = await fetch(`${AGENT_API_URL}/api/agent/launch`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        billId,
-        userToken,
-      }),
-    });
+      const response = await fetch(`${API_BASE_URL}/api/agent/navigate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(userToken && { 'Authorization': `Bearer ${userToken}` })
+        },
+        body: JSON.stringify({
+          billData: {
+            utilityProvider: billData.utilityProvider,
+            accountNumber: billData.accountNumber,
+            totalAmountDue: billData.totalAmountDue,
+            billDueDate: billData.billDueDate,
+            homeAddress: billData.homeAddress,
+            ownerName: billData.ownerName
+          },
+          userToken
+        })
+      });
 
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.message || 'Failed to launch agent');
-    }
-
-    const data = await response.json();
-    console.log('✅ Agent launched successfully:', data);
-    
-    return data;
-  } catch (error) {
-    console.error('❌ Failed to launch agent:', error);
-    throw error;
-  }
-}
-
-/**
- * Get agent session status
- */
-export async function getAgentSession(sessionId: string, userToken: string): Promise<AgentSession | null> {
-  try {
-    const response = await fetch(`${AGENT_API_URL}/api/agent/session/${sessionId}?userToken=${encodeURIComponent(userToken)}`, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    });
-
-    if (!response.ok) {
-      if (response.status === 404) {
-        return null;
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || `API error: ${response.status}`);
       }
-      const error = await response.json();
-      throw new Error(error.message || 'Failed to get agent session');
-    }
 
-    const data = await response.json();
-    return data.session;
-  } catch (error) {
-    console.error('❌ Failed to get agent session:', error);
-    throw error;
+      const data: AgentNavigateResponse = await response.json();
+      
+      console.log('✅ Agent response:', {
+        success: data.success,
+        iterations: data.iterations,
+        finalUrl: data.finalUrl
+      });
+
+      return data;
+    } catch (error) {
+      console.error('❌ Agent API call failed:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get screenshot URL from server
+   */
+  getScreenshotUrl(screenshotPath: string): string {
+    // Remove leading slash if present
+    const cleanPath = screenshotPath.startsWith('/') ? screenshotPath.substring(1) : screenshotPath;
+    return `${API_BASE_URL}/api/agent/screenshot/${cleanPath}`;
   }
 }
 
-/**
- * Get all agent sessions for a user
- */
-export async function getAgentSessions(userToken: string): Promise<AgentSession[]> {
-  try {
-    const response = await fetch(`${AGENT_API_URL}/api/agent/sessions?userToken=${encodeURIComponent(userToken)}`, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    });
-
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.message || 'Failed to get agent sessions');
-    }
-
-    const data = await response.json();
-    return data.sessions;
-  } catch (error) {
-    console.error('❌ Failed to get agent sessions:', error);
-    throw error;
-  }
-}
-
-/**
- * Poll agent session status until completion
- */
-export async function pollAgentStatus(
-  sessionId: string,
-  userToken: string,
-  onUpdate: (session: AgentSession) => void,
-  intervalMs: number = 1000
-): Promise<AgentSession> {
-  return new Promise((resolve, reject) => {
-    const pollInterval = setInterval(async () => {
-      try {
-        const session = await getAgentSession(sessionId, userToken);
-        
-        if (!session) {
-          clearInterval(pollInterval);
-          reject(new Error('Session not found'));
-          return;
-        }
-
-        onUpdate(session);
-
-        if (session.status === 'completed' || session.status === 'failed') {
-          clearInterval(pollInterval);
-          resolve(session);
-        }
-      } catch (error) {
-        clearInterval(pollInterval);
-        reject(error);
-      }
-    }, intervalMs);
-  });
-}
-
-export const agentApiService = {
-  launchAgent,
-  getAgentSession,
-  getAgentSessions,
-  pollAgentStatus,
-};
+export const agentApiService = new AgentApiService();
 

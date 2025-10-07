@@ -9,13 +9,29 @@ interface BillDataTableProps {
   onApprove?: (id: string, propertyId?: string) => void;
   onReject?: (id: string, comment?: string) => void;
   onUnreject?: (id: string) => void;
-  onLaunchAgent?: (id: string) => void;
   onDataUpdated?: (updatedBill: BillData) => void;
   propertyAddresses?: string[];
   selectedAccounts?: any[]; // User-provided property accounts
+  selectedBillIds?: Set<string>;
+  onBillSelection?: (billId: string, isSelected: boolean) => void;
+  onSelectAll?: (billIds: string[]) => void;
+  onDeselectAll?: () => void;
 }
 
-export const BillDataTable: React.FC<BillDataTableProps> = ({ bills, onDelete, onApprove, onReject, onUnreject, onLaunchAgent, onDataUpdated, propertyAddresses = [], selectedAccounts = [] }) => {
+export const BillDataTable: React.FC<BillDataTableProps> = ({ 
+  bills, 
+  onDelete, 
+  onApprove, 
+  onReject, 
+  onUnreject, 
+  onDataUpdated, 
+  propertyAddresses = [], 
+  selectedAccounts = [],
+  selectedBillIds = new Set(),
+  onBillSelection,
+  onSelectAll,
+  onDeselectAll
+}) => {
   const [sortField, setSortField] = useState<keyof BillData>('createdAt');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   const [filterOwner, setFilterOwner] = useState('');
@@ -201,6 +217,22 @@ export const BillDataTable: React.FC<BillDataTableProps> = ({ bills, onDelete, o
         <table className="min-w-full bg-white border border-gray-200 rounded-lg">
           <thead className="bg-gray-50">
             <tr>
+              {onBillSelection && (
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <input
+                    type="checkbox"
+                    checked={sortedAndFilteredBills.length > 0 && sortedAndFilteredBills.every(bill => selectedBillIds.has(bill.id))}
+                    onChange={(e) => {
+                      if (e.target.checked && onSelectAll) {
+                        onSelectAll(sortedAndFilteredBills.map(b => b.id));
+                      } else if (onDeselectAll) {
+                        onDeselectAll();
+                      }
+                    }}
+                    className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500"
+                  />
+                </th>
+              )}
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Actions
               </th>
@@ -333,9 +365,25 @@ export const BillDataTable: React.FC<BillDataTableProps> = ({ bills, onDelete, o
                       bill.confidenceScore < 95 ? 'bg-yellow-50' : ''
                     } ${
                       duplicates.length > 0 ? 'bg-orange-50' : ''
+                    } ${
+                      selectedBillIds.has(bill.id) ? 'bg-blue-50' : ''
                     }`}
                     onClick={() => handleRowClick(bill)}
                   >
+                {onBillSelection && (
+                  <td className="px-4 py-3 text-sm text-gray-900">
+                    <input
+                      type="checkbox"
+                      checked={selectedBillIds.has(bill.id)}
+                      onChange={(e) => {
+                        e.stopPropagation();
+                        onBillSelection(bill.id, e.target.checked);
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                      className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500"
+                    />
+                  </td>
+                )}
                 <td className="px-4 py-3 text-sm text-gray-900">
                   <div className="flex items-center space-x-2">
                     <button
@@ -526,7 +574,7 @@ export const BillDataTable: React.FC<BillDataTableProps> = ({ bills, onDelete, o
                   {/* Expanded row with approve/reject buttons */}
                   {isExpanded && (
                     <tr className="bg-gray-50">
-                      <td colSpan={15} className="px-4 py-3">
+                      <td colSpan={onBillSelection ? 16 : 15} className="px-4 py-3">
                         <div className="flex items-center justify-between">
                           <div className="flex items-center space-x-4">
                             <span className="text-sm text-gray-600">Actions:</span>
@@ -590,17 +638,6 @@ export const BillDataTable: React.FC<BillDataTableProps> = ({ bills, onDelete, o
                                 className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors text-sm font-medium"
                               >
                                 Delete
-                              </button>
-                            )}
-                            {onLaunchAgent && bill.status === 'approved' && (
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  onLaunchAgent(bill.id);
-                                }}
-                                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
-                              >
-                                Launch Agent
                               </button>
                             )}
                           </div>

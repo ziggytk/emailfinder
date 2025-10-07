@@ -6,7 +6,7 @@ import { UtilityProviderSelection } from './components/UtilityProviderSelection'
 import { UtilityBillResults } from './components/UtilityBillResults';
 import { BillExtractionModal } from './components/BillExtractionModal';
 import PaymentModal from './components/PaymentModal';
-import AgentModal from './components/AgentModal';
+import { PaymentMethodsModal } from './components/PaymentMethodsModal';
 
 import { BillDataTable } from './components/BillDataTable';
 import { gmailApiService } from './services/gmailApi';
@@ -37,8 +37,9 @@ export default function App() {
   const [showBillExtractionModal, setShowBillExtractionModal] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [selectedBillForPayment, setSelectedBillForPayment] = useState<BillData | null>(null);
-  const [showAgentModal, setShowAgentModal] = useState(false);
-  const [selectedBillForAgent, setSelectedBillForAgent] = useState<BillData | null>(null);
+  const [selectedBillIds, setSelectedBillIds] = useState<Set<string>>(new Set());
+  const [showPaymentMethodsModal, setShowPaymentMethodsModal] = useState(false);
+  const [selectedPropertyForPayment, setSelectedPropertyForPayment] = useState<{ id: string; address: string } | null>(null);
 
 
 
@@ -88,6 +89,13 @@ export default function App() {
           const response = await billExtractionService.getBillExtractions();
           if (response.success && response.data) {
             setExtractedBills(response.data);
+            
+            // DEV MODE: Auto-navigate to results if bills exist
+            // Comment out this block when not needed
+            if (response.data.length > 0 && appState === 'provider-selection') {
+              console.log('🔧 DEV MODE: Auto-loading results view with existing bills');
+              setAppState('results');
+            }
           }
         } catch (error) {
           console.error('Error loading bill extractions:', error);
@@ -96,7 +104,7 @@ export default function App() {
     };
 
     loadBillExtractions();
-  }, [user]);
+  }, [user, appState]);
 
   // Debug selectedAccounts changes
   useEffect(() => {
@@ -380,36 +388,6 @@ export default function App() {
     }
   };
 
-  const handleLaunchAgent = async (billId: string) => {
-    try {
-      console.log('🚀 Launching AI Agent for bill:', billId);
-      
-      // Find the bill to get its details
-      const bill = extractedBills.find(b => b.id === billId);
-      if (!bill) {
-        console.error('❌ Bill not found for agent launch');
-        return;
-      }
-
-      console.log('📋 Bill details for agent:', {
-        id: bill.id,
-        utilityProvider: bill.utilityProvider,
-        totalAmountDue: bill.totalAmountDue,
-        billDueDate: bill.billDueDate,
-        accountNumber: bill.accountNumber,
-        status: bill.status
-      });
-
-      // Open agent modal
-      setSelectedBillForAgent(bill);
-      setShowAgentModal(true);
-      
-      console.log('✅ Agent modal opened successfully');
-    } catch (error) {
-      console.error('❌ Error launching agent:', error);
-      alert('Failed to launch agent. Please try again.');
-    }
-  };
 
   const handleBillDataUpdated = (updatedBill: BillData) => {
     setExtractedBills(prev => prev.map(bill => 
@@ -419,6 +397,91 @@ export default function App() {
 
   const handleOpenBillExtraction = () => {
     setShowBillExtractionModal(true);
+  };
+
+  const handleBillSelection = (billId: string, isSelected: boolean) => {
+    setSelectedBillIds(prev => {
+      const newSet = new Set(prev);
+      if (isSelected) {
+        newSet.add(billId);
+      } else {
+        newSet.delete(billId);
+      }
+      return newSet;
+    });
+  };
+
+  const handleSelectAllBills = (billIds: string[]) => {
+    setSelectedBillIds(new Set(billIds));
+  };
+
+  const handleDeselectAllBills = () => {
+    setSelectedBillIds(new Set());
+  };
+
+  const handleLaunchAgent = async () => {
+    console.log('🚀 Launch Agent button clicked');
+    
+    // Validate at least 1 bill is selected
+    if (selectedBillIds.size === 0) {
+      alert('Please select at least one bill to launch the agent.');
+      return;
+    }
+
+    // Get selected bills data (process first bill only for Phase 2)
+    const selectedBills = extractedBills.filter(bill => selectedBillIds.has(bill.id));
+    const firstBill = selectedBills[0];
+    
+    if (!firstBill) {
+      alert('No bill data found.');
+      return;
+    }
+
+    console.log('Selected bill:', firstBill);
+    
+    try {
+      // Import agent API service
+      const { agentApiService } = await import('./services/agentApiService');
+      
+      console.log('🚀 Launching AI Agent...');
+      alert(`Launching AI agent for ${firstBill.utilityProvider}...\n\nThis may take 30-60 seconds. Check the console for progress.`);
+      
+      // Call backend agent API
+      const result = await agentApiService.launchAgent(firstBill);
+      
+      if (result.success) {
+        console.log('✅ Agent completed successfully!');
+        console.log('📸 Screenshots:', result.screenshots);
+        console.log('🌐 Final URL:', result.finalUrl);
+        console.log('📝 Actions taken:', result.actionHistory);
+        
+        // Check if paused for user interaction
+        if (result.pausedForUser) {
+          console.log('⏸️  Agent paused:', result.pauseReason);
+          
+          // Show pause message with instructions
+          alert(`⏸️ Agent Paused\n\n${result.pauseReason}\n\nThe form has been filled with:\n• Account Number: ${firstBill.accountNumber}\n• ZIP Code: ${firstBill.serviceAddress?.match(/\b\d{5}\b/)?.[0] || 'N/A'}\n\n👉 Please:\n1. Review the filled information\n2. Solve the CAPTCHA if present\n3. Click "Continue" or "Submit" to proceed\n\nFinal URL: ${result.finalUrl}`);
+          
+          // Open the page in a new tab for user to interact
+          window.open(result.finalUrl, '_blank');
+        } else {
+          // Show normal success message
+          alert(`✅ Agent completed successfully!\n\nFinal URL: ${result.finalUrl}\nIterations: ${result.iterations}\n\nCheck console for screenshots.`);
+        }
+        
+        // Log screenshot URLs
+        result.screenshots.forEach((screenshot, idx) => {
+          const url = agentApiService.getScreenshotUrl(screenshot);
+          console.log(`Screenshot ${idx + 1}:`, url);
+        });
+      } else {
+        console.error('❌ Agent failed:', result.error);
+        alert(`Agent failed: ${result.error}\n\nCheck console for details.`);
+      }
+    } catch (error) {
+      console.error('❌ Error launching agent:', error);
+      alert(`Error launching agent: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
   };
 
 
@@ -457,21 +520,8 @@ export default function App() {
             });
             
             if (response.success && response.data) {
-              // Auto-associate with user property if address match score is high enough
+              // Save bill data without auto-approval
               let billData = response.data;
-              if (billData.addressMatchScore >= 75 && billData.matchedPropertyAddress) {
-                // Find the matching account from selectedAccounts
-                const matchingAccount = selectedAccounts.find(account => {
-                  const accountAddress = `${account.address.street}, ${account.address.city}, ${account.address.state} ${account.address.zipCode}`;
-                  return accountAddress === billData.matchedPropertyAddress;
-                });
-                
-                if (matchingAccount) {
-                  billData.associatedPropertyId = matchingAccount.id;
-                  billData.status = 'approved';
-                  console.log(`🏠 Auto-associated bill with property: ${matchingAccount.id}`);
-                }
-              }
               
               // Save to database
               const saveResponse = await billExtractionService.saveBillExtraction(billData);
@@ -732,20 +782,40 @@ export default function App() {
               {/* Property Address Header */}
               {selectedAccounts.length > 0 && (
                 <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-6">
-                  <h2 className="text-2xl font-bold text-gray-900 mb-4">Your Properties</h2>
+                  <div className="flex items-center justify-between mb-4">
+                    <h2 className="text-2xl font-bold text-gray-900">Your Properties</h2>
+                  </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {getPropertyAddresses().map((address, index) => (
-                      <div key={index} className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-                        <div className="flex items-center space-x-2">
-                          <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
-                            <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
-                            </svg>
+                    {selectedAccounts.map((account, index) => {
+                      const addressString = typeof account.address === 'string' 
+                        ? account.address 
+                        : `${account.address.street}, ${account.address.city}, ${account.address.state} ${account.address.zipCode}`;
+                      
+                      return (
+                        <div key={index} className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center space-x-2 flex-1 min-w-0">
+                              <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0">
+                                <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+                                </svg>
+                              </div>
+                              <span className="font-medium text-gray-900 truncate">{addressString}</span>
+                            </div>
+                            <button
+                              onClick={() => {
+                                setSelectedPropertyForPayment({ id: account.id, address: addressString });
+                                setShowPaymentMethodsModal(true);
+                              }}
+                              className="flex-shrink-0 ml-2 px-3 py-1 text-xs font-medium text-blue-600 bg-blue-50 rounded-md hover:bg-blue-100 transition-colors"
+                              title="Manage payment methods"
+                            >
+                              💳 Payment
+                            </button>
                           </div>
-                          <span className="font-medium text-gray-900">{address}</span>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               )}
@@ -799,7 +869,7 @@ export default function App() {
               )}
 
               {/* Matched Bills Section */}
-              {extractedBills.filter(bill => bill.addressMatchScore >= 75 || (bill.status === 'approved' && bill.associatedPropertyId)).length > 0 && (
+              {extractedBills.filter(bill => bill.status === 'approved' && bill.associatedPropertyId).length > 0 && (
                 <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-6">
                   <div className="flex items-center justify-between mb-6">
                     <h2 className="text-2xl font-bold text-gray-900">Bills Matched to Your Properties</h2>
@@ -811,16 +881,7 @@ export default function App() {
                         Extract Another Bill
                       </button>
                       <button
-                        onClick={() => {
-                          const approvedBills = extractedBills.filter(bill => bill.status === 'approved');
-                          if (approvedBills.length === 0) {
-                            alert('No approved bills available for agent analysis.');
-                            return;
-                          }
-                          // For now, just show the first approved bill
-                          // In a real implementation, you might want to show a selection modal
-                          handleLaunchAgent(approvedBills[0].id);
-                        }}
+                        onClick={handleLaunchAgent}
                         className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                       >
                         Launch Agent
@@ -828,36 +889,38 @@ export default function App() {
                     </div>
                   </div>
                   <BillDataTable 
-                    bills={extractedBills.filter(bill => bill.addressMatchScore >= 75 || (bill.status === 'approved' && bill.associatedPropertyId))} 
+                    bills={extractedBills.filter(bill => bill.status === 'approved' && bill.associatedPropertyId)} 
                     onDelete={handleDeleteBill}
                     onApprove={handleApproveBill}
                     onReject={handleRejectBill}
                     onUnreject={handleUnrejectBill}
-                    onLaunchAgent={handleLaunchAgent}
                     onDataUpdated={handleBillDataUpdated}
                     propertyAddresses={getPropertyAddresses()}
                     selectedAccounts={selectedAccounts}
+                    selectedBillIds={selectedBillIds}
+                    onBillSelection={handleBillSelection}
+                    onSelectAll={handleSelectAllBills}
+                    onDeselectAll={handleDeselectAllBills}
                   />
                 </div>
               )}
 
               {/* Unmatched Bills Section */}
-              {extractedBills.filter(bill => bill.addressMatchScore < 75 && !(bill.status === 'approved' && bill.associatedPropertyId) && bill.status !== 'rejected').length > 0 && (
+              {extractedBills.filter(bill => bill.status !== 'approved' && bill.status !== 'rejected').length > 0 && (
                 <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-6">
                   <div className="flex items-center justify-between mb-6">
                     <div>
-                      <h2 className="text-2xl font-bold text-gray-900">Other Bills Found</h2>
-                      <p className="text-sm text-gray-600">Bills that don't match your properties or have low confidence</p>
+                      <h2 className="text-2xl font-bold text-gray-900">Bills Pending Approval</h2>
+                      <p className="text-sm text-gray-600">Review and approve bills to associate them with your properties</p>
                     </div>
 
                   </div>
                   <BillDataTable 
-                    bills={extractedBills.filter(bill => bill.addressMatchScore < 75 && !(bill.status === 'approved' && bill.associatedPropertyId) && bill.status !== 'rejected')} 
+                    bills={extractedBills.filter(bill => bill.status !== 'approved' && bill.status !== 'rejected')} 
                     onDelete={handleDeleteBill}
                     onApprove={handleApproveBill}
                     onReject={handleRejectBill}
                     onUnreject={handleUnrejectBill}
-                    onLaunchAgent={handleLaunchAgent}
                     onDataUpdated={handleBillDataUpdated}
                     propertyAddresses={getPropertyAddresses()}
                     selectedAccounts={selectedAccounts}
@@ -880,7 +943,6 @@ export default function App() {
                     onApprove={handleApproveBill}
                     onReject={handleRejectBill}
                     onUnreject={handleUnrejectBill}
-                    onLaunchAgent={handleLaunchAgent}
                     onDataUpdated={handleBillDataUpdated}
                     propertyAddresses={getPropertyAddresses()}
                     selectedAccounts={selectedAccounts}
@@ -889,8 +951,8 @@ export default function App() {
               )}
 
               {/* No Bills State */}
-              {extractedBills.filter(bill => bill.addressMatchScore >= 75 || (bill.status === 'approved' && bill.associatedPropertyId)).length === 0 && 
-               extractedBills.filter(bill => bill.addressMatchScore < 75 && !(bill.status === 'approved' && bill.associatedPropertyId) && bill.status !== 'rejected').length === 0 &&
+              {extractedBills.filter(bill => bill.status === 'approved' && bill.associatedPropertyId).length === 0 && 
+               extractedBills.filter(bill => bill.status !== 'approved' && bill.status !== 'rejected').length === 0 &&
                extractedBills.filter(bill => bill.status === 'rejected').length === 0 && (
                 <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-6 text-center">
                   <h2 className="text-2xl font-bold text-gray-900 mb-4">No Bills Extracted Yet</h2>
@@ -919,7 +981,7 @@ export default function App() {
   return (
     <Elements stripe={stripePromise}>
       {renderAppState()}
-      <BillExtractionModal
+      <BillExtractionModal 
         isOpen={showBillExtractionModal}
         onClose={() => setShowBillExtractionModal(false)}
         onBillExtracted={handleBillExtracted}
@@ -934,15 +996,18 @@ export default function App() {
         bill={selectedBillForPayment}
         onPaymentSuccess={handlePaymentSuccess}
       />
-      <AgentModal
-        isOpen={showAgentModal}
-        onClose={() => {
-          setShowAgentModal(false);
-          setSelectedBillForAgent(null);
-        }}
-        billId={selectedBillForAgent?.id}
-        billData={selectedBillForAgent}
-      />
+      {selectedPropertyForPayment && user && (
+        <PaymentMethodsModal
+          isOpen={showPaymentMethodsModal}
+          onClose={() => {
+            setShowPaymentMethodsModal(false);
+            setSelectedPropertyForPayment(null);
+          }}
+          propertyId={selectedPropertyForPayment.id}
+          userId={user.id}
+          propertyAddress={selectedPropertyForPayment.address}
+        />
+      )}
     </Elements>
   );
 }
